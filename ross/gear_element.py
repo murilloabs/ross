@@ -875,6 +875,8 @@ class Mesh:
         Directly specify the stiffness of the gear mesh.
         If not provided, it can be calculated automatically
         when using `GearElementTVMS` instead of `GearElement`.
+    maximum_backlash: float, optional
+        Maximum backlash value
 
     Attributes:
     -----------
@@ -921,6 +923,7 @@ class Mesh:
         driving_gear,
         driven_gear,
         gear_mesh_stiffness=None,
+        maximum_backlash = None,
     ):
         self.driving_gear = driving_gear
         self.driven_gear = driven_gear
@@ -929,6 +932,7 @@ class Mesh:
         )  # Shigley Machine Elements
         self.pressure_angle = driving_gear.pr_angle
         self.helix_angle = driving_gear.helix_angle
+        self.maximum_backlash = maximum_backlash
 
         if not math.isclose(driving_gear.module, driven_gear.module, rel_tol=0.05):
             warn(
@@ -942,6 +946,8 @@ class Mesh:
                     "Gear widths must match for proper meshing | "
                     f"Driving gear: {driving_gear.width:.4f}, Driven gear: {driven_gear.width:.4f}"
                 )
+
+        self.flag_cte_stiff = False
 
         if gear_mesh_stiffness is None:
             if (
@@ -988,6 +994,13 @@ class Mesh:
 
         else:
             self.stiffness = gear_mesh_stiffness
+
+            self.flag_cte_stiff = True
+
+            theta_range, stiffness_range = self.get_stiffness_for_mesh_period()
+
+            self.theta_range = theta_range
+            self.stiffness_range = stiffness_range
 
     def _calculate_contact_ratio(self, driving_addendum_radius, driven_addendum_radius):
         rb1 = self.driving_gear.base_radius
@@ -1095,9 +1108,19 @@ class Mesh:
         theta_end = 2 * np.pi / self.driving_gear.n_teeth * n_mesh_period
         theta_range = np.linspace(0, theta_end, n_points)
 
-        stiffness_range = [self.get_variable_stiffness(theta) for theta in theta_range]
+        self.theta_range = theta_range
 
-        return theta_range, stiffness_range
+        if self.flag_cte_stiff == True:
+            stiffness_range = np.array([self.stiffness for theta in theta_range])
+        else:
+            stiffness_range = np.array([self.get_variable_stiffness(theta) for theta in theta_range])
+
+        if self.maximum_backlash is not None:
+            backlash = np.array([self.calc_backlash(theta) for theta in theta_range])
+        else:
+            backlash = np.array([1 for theta in theta_range])
+
+        return theta_range, stiffness_range*backlash
 
     def interpolate_stiffness(self, angular_position):
         """Interpolates the mesh stiffness value at a given angular position.
@@ -1117,6 +1140,37 @@ class Mesh:
 
         return stiffness
 
+    def calc_backlash(self, angular_position):
+
+        rb1 = (self.driving_gear.pitch_diameter / 2)*np.cos(self.pressure_angle)
+        rb2 = (self.driven_gear.pitch_diameter / 2)*np.cos(self.pressure_angle)
+
+        theta = mod(angular_position, max(self.theta_range))
+
+        if self.maximum_backlash is not None:
+            bs = self.maximum_backlash
+
+            theta1 = theta
+            theta2 = theta1*self.gear_ratio
+
+            delta = rb1*theta1 + rb2*theta2
+
+            if delta > bs:
+                backlash = delta - bs
+
+            elif abs(delta) < bs:
+                backlash = 0
+
+            elif delta < -bs:
+                backlash = bs-delta
+        
+        else:
+            backlash = 1
+
+
+        return backlash
+
+    
     def plot_stiffness_profile(
         self,
         n_mesh_period=1,

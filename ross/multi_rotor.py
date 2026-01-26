@@ -39,6 +39,8 @@ class MultiRotor(Rotor):
         value is used throughout the simulation.
     orientation_angle : float, pint.Quantity, optional
         The angle between the line of gear centers and x-axis. Default is 0.0 rad.
+    maximum_backlash: float, optional
+        Maximum backlash value
     position : {'above', 'below'}, optional
         The relative position of the driven rotor with respect to the driving rotor
         when plotting the multi-rotor. Default is 'above'.
@@ -119,12 +121,14 @@ class MultiRotor(Rotor):
         coupled_nodes,
         gear_mesh_stiffness=None,
         update_mesh_stiffness=False,
+        maximum_backlash = None,
         orientation_angle=0.0,
         position="above",
         tag=None,
     ):
         self.rotors = {"driving": driving_rotor, "driven": driven_rotor}
         self.orientation_angle = orientation_angle
+        self.maximum_backlash = maximum_backlash
 
         R1 = copy(driving_rotor)
         R2 = copy(driven_rotor)
@@ -150,6 +154,7 @@ class MultiRotor(Rotor):
             gear_1,
             gear_2,
             gear_mesh_stiffness=gear_mesh_stiffness,
+            maximum_backlash=maximum_backlash
         )
 
         gear1_plot = next(
