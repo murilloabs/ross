@@ -5702,6 +5702,29 @@ class TimeResponseResults(Results):
         self.xout = xout
         self.rotor = rotor
 
+    def _get_window(self, t_initial, t_final):
+        """Return copies of the time response cropped to a time interval."""
+        time = np.array(self.t, copy=True)
+        yout = np.array(self.yout, copy=True)
+
+        if t_initial > t_final:
+            raise ValueError(
+                "t_initial must be smaller than or equal to t_final."
+            )
+
+        if t_initial < time[0] or t_final > time[-1]:
+            raise ValueError(
+                f"Time interval must be within [{time[0]}, {time[-1]}]."
+            )
+
+        initial_index = np.searchsorted(time, t_initial, side="left")
+        final_index = np.searchsorted(time, t_final, side="right")
+
+        if initial_index >= final_index:
+            raise ValueError("The selected time interval contains no samples.")
+
+        return time[initial_index:final_index], yout[initial_index:final_index, :]
+
     def data_time_response(
         self,
         probe,
@@ -5768,10 +5791,8 @@ class TimeResponseResults(Results):
 
                 # fmt: off
                 operator = np.array(
-                    [
-                        [np.cos(angle), np.sin(angle)],
-                        [-np.sin(angle), np.cos(angle)],
-                    ]
+                    [[np.cos(angle), np.sin(angle)],
+                    [-np.sin(angle), np.cos(angle)]]
                 )
 
                 _probe_resp = operator @ np.vstack(
@@ -5819,6 +5840,7 @@ class TimeResponseResults(Results):
         kwargs : optional
             Additional key word arguments can be passed to change the plot layout only
             (e.g. width=1000, height=800, ...).
+            ``t_initial`` and ``t_final`` select the time interval in seconds.
             *See Plotly Python Figure Reference for more information.
 
         Returns
@@ -5830,22 +5852,64 @@ class TimeResponseResults(Results):
         if fig is None:
             fig = go.Figure()
 
-        df = self.data_time_response(probe, displacement_units, time_units)
+        t_initial = kwargs.pop("t_initial", None)
+        t_final = kwargs.pop("t_final", None)
+
+        if (t_initial is None) != (t_final is None):
+            raise ValueError("t_initial and t_final must be provided together.")
+
+        if t_initial is None:
+            time = self.t
+            yout = self.yout
+        else:
+            time, yout = self._get_window(t_initial, t_final)
+
+        df = self.data_time_response(
+            probe,
+            displacement_units,
+            time_units,
+            t=time,
+            yout=yout,
+        )
         _time = df["time"].values
         for i, p in enumerate(probe):
             try:
                 probe_tag = df[f"probe_tag[{i}]"].values[0]
                 probe_resp = df[f"probe_resp[{i}]"].values
+                plot_resp = Q_(probe_resp, "m").to(displacement_units).m
 
                 fig.add_trace(
                     go.Scatter(
                         x=_time,
-                        y=Q_(probe_resp, "m").to(displacement_units).m,
+                        y=plot_resp,
                         mode="lines",
                         name=probe_tag,
                         legendgroup=probe_tag,
                         showlegend=True,
                         hovertemplate=f"Time ({time_units}): %{{x:.2f}}<br>Amplitude ({displacement_units}): %{{y:.2e}}",
+                    )
+                )
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[_time[0]],
+                        y=[plot_resp[0]],
+                        mode="markers",
+                        marker=dict(symbol="circle", size=8),
+                        name=f"{probe_tag} - initial",
+                        legendgroup=probe_tag,
+                        showlegend=False,
+                    )
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=[_time[-1]],
+                        y=[plot_resp[-1]],
+                        mode="markers",
+                        marker=dict(symbol="x", size=9),
+                        name=f"{probe_tag} - final",
+                        legendgroup=probe_tag,
+                        showlegend=False,
                     )
                 )
             except KeyError:
@@ -5874,6 +5938,7 @@ class TimeResponseResults(Results):
         kwargs : optional
             Additional key word arguments can be passed to change the plot layout only
             (e.g. width=1000, height=800, ...).
+            ``t_initial`` and ``t_final`` select the time interval in seconds.
             *See Plotly Python Figure Reference for more information.
 
         Returns
@@ -5881,6 +5946,17 @@ class TimeResponseResults(Results):
         fig : Plotly graph_objects.Figure()
             The figure object with the plot.
         """
+        t_initial = kwargs.pop("t_initial", None)
+        t_final = kwargs.pop("t_final", None)
+
+        if (t_initial is None) != (t_final is None):
+            raise ValueError("t_initial and t_final must be provided together.")
+
+        if t_initial is None:
+            yout = self.yout
+        else:
+            _, yout = self._get_window(t_initial, t_final)
+
         nodes = self.rotor.nodes
         link_nodes = self.rotor.link_nodes
         ndof = self.rotor.number_dof
@@ -5892,10 +5968,13 @@ class TimeResponseResults(Results):
         if fig is None:
             fig = go.Figure()
 
+        x_response = Q_(yout[:, dofx], "m").to(displacement_units).m
+        y_response = Q_(yout[:, dofy], "m").to(displacement_units).m
+
         fig.add_trace(
             go.Scatter(
-                x=Q_(self.yout[:, dofx], "m").to(displacement_units).m,
-                y=Q_(self.yout[:, dofy], "m").to(displacement_units).m,
+                x=x_response,
+                y=y_response,
                 mode="lines",
                 name="Orbit",
                 legendgroup="Orbit",
@@ -5903,6 +5982,27 @@ class TimeResponseResults(Results):
                 hovertemplate=(
                     f"X - Amplitude ({displacement_units}): %{{x:.2e}}<br>Y - Amplitude ({displacement_units}): %{{y:.2e}}"
                 ),
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=[x_response[0]],
+                y=[y_response[0]],
+                mode="markers",
+                marker=dict(symbol="circle", size=9, color="black"),
+                name="Initial point",
+                showlegend=True,
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[x_response[-1]],
+                y=[y_response[-1]],
+                mode="markers",
+                marker=dict(symbol="x", size=10, color="black"),
+                name="Final point",
+                showlegend=True,
             )
         )
 
@@ -5934,6 +6034,7 @@ class TimeResponseResults(Results):
         kwargs : optional
             Additional key word arguments can be passed to change the plot layout only
             (e.g. hoverlabel_align="center", ...).
+            ``t_initial`` and ``t_final`` select the time interval in seconds.
             *See Plotly Python Figure Reference for more information.
 
         Returns
@@ -5941,6 +6042,18 @@ class TimeResponseResults(Results):
         fig : Plotly graph_objects.Figure()
             The figure object with the plot.
         """
+        t_initial = kwargs.pop("t_initial", None)
+        t_final = kwargs.pop("t_final", None)
+
+        if (t_initial is None) != (t_final is None):
+            raise ValueError("t_initial and t_final must be provided together.")
+
+        if t_initial is None:
+            time = self.t
+            yout = self.yout
+        else:
+            time, yout = self._get_window(t_initial, t_final)
+
         nodes_pos = self.rotor.nodes_pos
         nodes = self.rotor.nodes
         ndof = self.rotor.number_dof
@@ -5949,12 +6062,15 @@ class TimeResponseResults(Results):
             fig = go.Figure()
 
         for n in nodes:
-            x_pos = np.ones(self.yout.shape[0]) * nodes_pos[n]
+            x_pos = np.ones(len(time)) * nodes_pos[n]
+            x_response = Q_(yout[:, ndof * n], "m").to(displacement_units).m
+            y_response = Q_(yout[:, ndof * n + 1], "m").to(displacement_units).m
+
             fig.add_trace(
                 go.Scatter3d(
                     x=Q_(x_pos, "m").to(rotor_length_units).m,
-                    y=Q_(self.yout[:, ndof * n], "m").to(displacement_units).m,
-                    z=Q_(self.yout[:, ndof * n + 1], "m").to(displacement_units).m,
+                    y=x_response,
+                    z=y_response,
                     mode="lines",
                     line=dict(color=tableau_colors["blue"]),
                     name="Mean",
@@ -5964,6 +6080,29 @@ class TimeResponseResults(Results):
                         f"Nodal Position ({rotor_length_units}): %{{x:.2f}}<br>X - Amplitude ({displacement_units}): %{{y:.2e}}<br>Y - Amplitude ({displacement_units}): %{{z:.2e}}"
                     ),
                     **kwargs,
+                )
+            )
+
+            fig.add_trace(
+                go.Scatter3d(
+                    x=[Q_(x_pos[0], "m").to(rotor_length_units).m],
+                    y=[x_response[0]],
+                    z=[y_response[0]],
+                    mode="markers",
+                    marker=dict(symbol="circle", size=5, color="black"),
+                    name="Initial point",
+                    showlegend=False,
+                )
+            )
+            fig.add_trace(
+                go.Scatter3d(
+                    x=[Q_(x_pos[-1], "m").to(rotor_length_units).m],
+                    y=[x_response[-1]],
+                    z=[y_response[-1]],
+                    mode="markers",
+                    marker=dict(symbol="x", size=6, color="black"),
+                    name="Final point",
+                    showlegend=False,
                 )
             )
 
