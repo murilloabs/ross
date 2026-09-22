@@ -5766,6 +5766,7 @@ class TimeResponseResults(Results):
                 dofx = ndof * node - fix_dof
                 dofy = ndof * node + 1 - fix_dof
 
+                # fmt: off
                 operator = np.array(
                     [
                         [np.cos(angle), np.sin(angle)],
@@ -5777,6 +5778,7 @@ class TimeResponseResults(Results):
                     (response[init_step:, dofx], response[init_step:, dofy])
                 )
                 probe_resp = _probe_resp[0, :]
+                # fmt: on
             else:
                 dofz = ndof * node + 2 - fix_dof
                 probe_resp = response[init_step:, dofz]
