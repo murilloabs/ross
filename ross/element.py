@@ -167,7 +167,7 @@ class Element(ABC):
         >>> # Example using BearingElement
         >>> from ross.bearing_seal_element import bearing_example
         >>> bearing = bearing_example()
-        >>> bearing.M(0)
+        >>> bearing.M(0)[:3, :3]
         array([[0., 0., 0.],
                [0., 0., 0.],
                [0., 0., 0.]])
@@ -195,7 +195,7 @@ class Element(ABC):
         >>> # Example using BearingElement
         >>> from ross.bearing_seal_element import bearing_example
         >>> bearing = bearing_example()
-        >>> bearing.C(0)
+        >>> bearing.C(0)[:3, :3]
         array([[200.,   0.,   0.],
                [  0., 150.,   0.],
                [  0.,   0.,  50.]])
@@ -223,7 +223,7 @@ class Element(ABC):
         >>> # Example using BearingElement
         >>> from ross.bearing_seal_element import bearing_example
         >>> bearing = bearing_example()
-        >>> bearing.K(0)
+        >>> bearing.K(0)[:3, :3]
         array([[1000000.,       0.,       0.],
                [      0.,  800000.,       0.],
                [      0.,       0.,  100000.]])
@@ -243,7 +243,7 @@ class Element(ABC):
         >>> # Example using BearingElement
         >>> from ross.bearing_seal_element import bearing_example
         >>> bearing = bearing_example()
-        >>> bearing.G()
+        >>> bearing.G()[:3, :3]
         array([[0., 0., 0.],
                [0., 0., 0.],
                [0., 0., 0.]])
@@ -292,7 +292,7 @@ class Element(ABC):
         >>> from ross.bearing_seal_element import bearing_example
         >>> bearing = bearing_example()
         >>> bearing.dof_mapping()
-        {'x_0': 0, 'y_0': 1, 'z_0': 2}
+        {'x_0': 0, 'y_0': 1, 'z_0': 2, 'alpha_0': 3, 'beta_0': 4, 'theta_0': 5}
         """
         pass
 
@@ -310,7 +310,7 @@ class Element(ABC):
         >>> from ross.bearing_seal_element import bearing_example
         >>> bearing = bearing_example()
         >>> bearing.dof_local_index()
-        LocalIndex(x_0=0, y_0=1, z_0=2)
+        LocalIndex(x_0=0, y_0=1, z_0=2, alpha_0=3, beta_0=4, theta_0=5)
         """
         dof_mapping = self.dof_mapping()
         dof_tuple = namedtuple("LocalIndex", dof_mapping)

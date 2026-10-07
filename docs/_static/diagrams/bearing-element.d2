@@ -26,7 +26,9 @@ Element: Element {
 BearingElement: BearingElement {
   tooltip: |
     Base class for bearings and seals
-    Coefficients: kxx, kxy, kyx, kyy, cxx, cxy, cyx, cyy
+    Translational stiffness: kxx, kxy, kyx, kyy, kzz
+    Rotational stiffness: kr_x, kr_y, kr_z
+    Matrices: 6×6, or 12×12 with n_link
     Supports constant or speed-dependent coefficients
   |
   link: ./ross-overview.svg

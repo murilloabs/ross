@@ -280,6 +280,9 @@ def test_bearing_link_matrices():
 
 
 def test_rotational_stiffness_units_and_interpolation():
+    default_bearing = BearingElement(n=0, kxx=1, cxx=0)
+    assert_allclose(np.diag(default_bearing.K(0))[3:], 0)
+
     bearing = BearingElement(
         n=0,
         kxx=1,

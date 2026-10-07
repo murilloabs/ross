@@ -423,12 +423,24 @@ class BearingElement(Element):
     >>> cxx = 2e2
     >>> cyy = 1.5e2
     >>> speed = np.linspace(0, 200, 11)
-    >>> bearing0 = rs.BearingElement(n=0, kxx=kxx, kyy=kyy, cxx=cxx, cyy=cyy, speed=speed)
-    >>> bearing0.K(speed[-1])
+    >>> bearing0 = rs.BearingElement(
+    ...     n=0,
+    ...     kxx=kxx,
+    ...     kyy=kyy,
+    ...     cxx=cxx,
+    ...     cyy=cyy,
+    ...     kr_x=1e4,
+    ...     kr_y=2e4,
+    ...     kr_z=3e4,
+    ...     speed=speed,
+    ... )
+    >>> bearing0.K(speed[-1])[:3, :3]
     array([[1000000.,       0.,       0.],
            [      0.,  800000.,       0.],
            [      0.,       0.,       0.]])
-    >>> bearing0.C(speed[-1])
+    >>> np.diag(bearing0.K(speed[-1]))[3:]
+    array([10000., 20000., 30000.])
+    >>> bearing0.C(speed[-1])[:3, :3]
     array([[200.,   0.,   0.],
            [  0., 150.,   0.],
            [  0.,   0.,   0.]])
@@ -1114,12 +1126,17 @@ class BearingElement(Element):
         Returns
         -------
         M : np.ndarray
-            Mass matrix (kg).
+            A 6x6 mass matrix with translational coefficients in the first
+            three degrees of freedom and zeros in the rotational degrees of
+            freedom (kg). With ``n_link``, the matrix is 12x12 and uses the
+            relative formulation ``[M, -M; -M, M]``.
 
         Examples
         --------
         >>> bearing = bearing_example()
-        >>> bearing.M(0)
+        >>> bearing.M(0).shape
+        (6, 6)
+        >>> bearing.M(0)[:3, :3]
         array([[0., 0., 0.],
                [0., 0., 0.],
                [0., 0., 0.]])
@@ -1161,14 +1178,18 @@ class BearingElement(Element):
         K : np.ndarray
             A 6x6 matrix containing translational stiffness in the first three
             degrees of freedom and rotational stiffness in the last three.
+            With ``n_link``, the matrix is 12x12 and uses the relative
+            formulation ``[K, -K; -K, K]``.
 
         Examples
         --------
         >>> bearing = bearing_example()
-        >>> bearing.K(0)
+        >>> bearing.K(0)[:3, :3]
         array([[1000000.,       0.,       0.],
                [      0.,  800000.,       0.],
                [      0.,       0.,  100000.]])
+        >>> np.diag(bearing.K(0))[3:]
+        array([0., 0., 0.])
         """
         kxx = self.kxx_interpolated(frequency, speed)
         kyy = self.kyy_interpolated(frequency, speed)
@@ -1209,13 +1230,17 @@ class BearingElement(Element):
         Returns
         -------
         C : np.ndarray
-            A 3x3 matrix of floats containing the cxx, cxy, cyx, cyy, and czz
-            values (N*s/m).
+            A 6x6 matrix containing the cxx, cxy, cyx, cyy, and czz values in
+            the first three degrees of freedom and zeros in the rotational
+            degrees of freedom (N*s/m). With ``n_link``, the matrix is 12x12
+            and uses the relative formulation ``[C, -C; -C, C]``.
 
         Examples
         --------
         >>> bearing = bearing_example()
-        >>> bearing.C(0)
+        >>> bearing.C(0).shape
+        (6, 6)
+        >>> bearing.C(0)[:3, :3]
         array([[200.,   0.,   0.],
                [  0., 150.,   0.],
                [  0.,   0.,  50.]])
@@ -1246,15 +1271,16 @@ class BearingElement(Element):
         Returns
         -------
         G : np.ndarray
-            A 3x3 matrix of floats.
+            A zero matrix with the same 6x6 or 12x12 shape as the stiffness
+            matrix.
 
         Examples
         --------
         >>> bearing = bearing_example()
-        >>> bearing.G()
-        array([[0., 0., 0.],
-               [0., 0., 0.],
-               [0., 0., 0.]])
+        >>> bearing.G().shape
+        (6, 6)
+        >>> np.count_nonzero(bearing.G())
+        0
         """
         G = np.zeros_like(self.K(0))
 
@@ -1767,11 +1793,11 @@ class SealElement(BearingElement):
     >>> cyy = 1.5e2
     >>> speed = np.linspace(0, 200, 11)
     >>> seal = rs.SealElement(n=0, kxx=kxx, kyy=kyy, cxx=cxx, cyy=cyy, speed=speed)
-    >>> seal.K(speed[-1])
+    >>> seal.K(speed[-1])[:3, :3]
     array([[1000000.,       0.,       0.],
            [      0.,  800000.,       0.],
            [      0.,       0.,       0.]])
-    >>> seal.C(speed[-1])
+    >>> seal.C(speed[-1])[:3, :3]
     array([[200.,   0.,   0.],
            [  0., 150.,   0.],
            [  0.,   0.,   0.]])
@@ -2110,7 +2136,7 @@ class BallBearingElement(BearingElement):
     >>> tag = "ballbearing"
     >>> bearing = BallBearingElement(n=n, n_balls=n_balls, d_balls=d_balls,
     ...                              fs=fs, alpha=alpha, tag=tag)
-    >>> bearing.K(0)
+    >>> bearing.K(0)[:3, :3]
     array([[4.64168838e+07, 0.00000000e+00, 0.00000000e+00],
            [0.00000000e+00, 1.00906269e+08, 0.00000000e+00],
            [0.00000000e+00, 0.00000000e+00, 0.00000000e+00]])
@@ -2288,7 +2314,7 @@ class RollerBearingElement(BearingElement):
     >>> tag = "rollerbearing"
     >>> bearing = RollerBearingElement(n=n, n_rollers=n_rollers, l_rollers=l_rollers,
     ...                            fs=fs, alpha=alpha, tag=tag)
-    >>> bearing.K(0)
+    >>> bearing.K(0)[:3, :3]
     array([[2.72821927e+08, 0.00000000e+00, 0.00000000e+00],
            [0.00000000e+00, 5.56779444e+08, 0.00000000e+00],
            [0.00000000e+00, 0.00000000e+00, 0.00000000e+00]])
