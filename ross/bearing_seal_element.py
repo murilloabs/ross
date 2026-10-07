@@ -381,6 +381,9 @@ class BearingElement(Element):
     mzz : float, array, pint.Quantity, optional
         Direct mass in the z direction (kg).
         Default is 0.
+    kr_x, kr_y, kr_z : float, array, pint.Quantity, optional
+        Rotational stiffness about the x, y and z axes (N.m/rad).
+        Default is 0.
     speed : array, pint.Quantity, optional
         Rotor speed axis of the coefficient table (rad/s).
         Default is None.
@@ -468,6 +471,9 @@ class BearingElement(Element):
         kzz=0,
         czz=0,
         mzz=0,
+        kr_x=0,
+        kr_y=0,
+        kr_z=0,
         speed=None,
         frequency=None,
         tag=None,
@@ -505,6 +511,9 @@ class BearingElement(Element):
             "mxy",
             "myx",
             "mzz",
+            "kr_x",
+            "kr_y",
+            "kr_z",
         ]
 
         # all args to coefficients.  output of locals() should be READ ONLY
@@ -561,6 +570,7 @@ class BearingElement(Element):
         coefficients=None,
         frequency_units="rad/s",
         stiffness_units="N/m",
+        rotational_stiffness_units="N*m/rad",
         damping_units="N*s/m",
         mass_units="kg",
         fig=None,
@@ -582,6 +592,9 @@ class BearingElement(Element):
         stiffness_units : str, optional
             Stiffness units.
             Default is N/m.
+        rotational_stiffness_units : str, optional
+            Rotational stiffness units.
+            Default is N*m/rad.
         damping_units : str, optional
             Damping units.
             Default is N*s/m.
@@ -610,7 +623,9 @@ class BearingElement(Element):
         if isinstance(coefficients, str):
             coefficients = [coefficients]
         # check coefficients consistency
-        coefficients_set = set([coeff[0] for coeff in coefficients])
+        coefficients_set = set(
+            ["kr" if coeff.startswith("kr_") else coeff[0] for coeff in coefficients]
+        )
         if len(coefficients_set) > 1:
             raise ValueError(
                 "Can only plot stiffness, damping or mass in the same plot."
@@ -618,7 +633,10 @@ class BearingElement(Element):
 
         coeff_to_plot = coefficients_set.pop()
 
-        if coeff_to_plot == "k":
+        if coeff_to_plot == "kr":
+            default_units = "N*m/rad"
+            y_units = rotational_stiffness_units
+        elif coeff_to_plot == "k":
             default_units = "N/m"
             y_units = stiffness_units
         elif coeff_to_plot == "c":
@@ -679,6 +697,7 @@ class BearingElement(Element):
         coefficients=None,
         frequency_units="rad/s",
         stiffness_units="N/m",
+        rotational_stiffness_units="N*m/rad",
         damping_units="N*s/m",
         mass_units="kg",
     ):
@@ -705,6 +724,9 @@ class BearingElement(Element):
         stiffness_units : str, optional
             Stiffness units.
             Default is N/m.
+        rotational_stiffness_units : str, optional
+            Rotational stiffness units.
+            Default is N*m/rad.
         damping_units : str, optional
             Damping units.
             Default is N*s/m.
@@ -740,8 +762,18 @@ class BearingElement(Element):
         elif coefficients is None:
             coefficients = self._get_coefficient_list(ignore_mass=True)
 
-        default_units = {"k": "N/m", "c": "N*s/m", "m": "kg"}
-        y_units = {"k": stiffness_units, "c": damping_units, "m": mass_units}
+        default_units = {
+            "k": "N/m",
+            "kr": "N*m/rad",
+            "c": "N*s/m",
+            "m": "kg",
+        }
+        y_units = {
+            "k": stiffness_units,
+            "kr": rotational_stiffness_units,
+            "c": damping_units,
+            "m": mass_units,
+        }
 
         def default_axis(values, axis):
             if values is not None:
@@ -784,13 +816,14 @@ class BearingElement(Element):
         table = PrettyTable()
 
         for coeff in coefficients:
-            headers.append(f"{coeff} [{y_units[coeff[0]]}]")
+            coeff_type = "kr" if coeff.startswith("kr_") else coeff[0]
+            headers.append(f"{coeff} [{y_units[coeff_type]}]")
             columns = (
                 Q_(
                     getattr(self, f"{coeff}_interpolated")(frequency_col, speed_col),
-                    default_units[coeff[0]],
+                    default_units[coeff_type],
                 )
-                .to(y_units[coeff[0]])
+                .to(y_units[coeff_type])
                 .m
             )
             data.append(columns)
@@ -821,6 +854,7 @@ class BearingElement(Element):
             f" kxx={self.kxx}, kxy={self.kxy},\n"
             f" kyx={self.kyx}, kyy={self.kyy},\n"
             f" kzz={self.kzz}, cxx={self.cxx},\n"
+            f" kr_x={self.kr_x}, kr_y={self.kr_y}, kr_z={self.kr_z},\n"
             f" cxy={self.cxy}, cyx={self.cyx},\n"
             f" cyy={self.cyy}, czz={self.czz},\n"
             f" mxx={self.mxx}, mxy={self.mxy},\n"
@@ -1053,15 +1087,14 @@ class BearingElement(Element):
 
         Being the following their ordering for a node:
 
-        x_0 - horizontal translation
-        y_0 - vertical translation
-        z_0 - axial translation
+        x_0, y_0, z_0 - translations
+        alpha_0, beta_0, theta_0 - rotations about x, y and z
 
         >>> bearing = bearing_example()
         >>> bearing.dof_mapping()
-        {'x_0': 0, 'y_0': 1, 'z_0': 2}
+        {'x_0': 0, 'y_0': 1, 'z_0': 2, 'alpha_0': 3, 'beta_0': 4, 'theta_0': 5}
         """
-        return dict(x_0=0, y_0=1, z_0=2)
+        return dict(x_0=0, y_0=1, z_0=2, alpha_0=3, beta_0=4, theta_0=5)
 
     @check_units
     def M(self, frequency, speed=None):
@@ -1097,7 +1130,8 @@ class BearingElement(Element):
         myx = self.myx_interpolated(frequency, speed)
         mzz = self.mzz_interpolated(frequency, speed)
 
-        M = np.array([[mxx, mxy, 0], [myx, myy, 0], [0, 0, mzz]])
+        M = np.zeros((6, 6))
+        M[:3, :3] = np.array([[mxx, mxy, 0], [myx, myy, 0], [0, 0, mzz]])
 
         if self.n_link is not None:
             # fmt: off
@@ -1125,8 +1159,8 @@ class BearingElement(Element):
         Returns
         -------
         K : np.ndarray
-            A 3x3 matrix of floats containing the kxx, kxy, kyx, kyy and kzz
-            values (N/m).
+            A 6x6 matrix containing translational stiffness in the first three
+            degrees of freedom and rotational stiffness in the last three.
 
         Examples
         --------
@@ -1141,8 +1175,13 @@ class BearingElement(Element):
         kxy = self.kxy_interpolated(frequency, speed)
         kyx = self.kyx_interpolated(frequency, speed)
         kzz = self.kzz_interpolated(frequency, speed)
+        kr_x = self.kr_x_interpolated(frequency, speed)
+        kr_y = self.kr_y_interpolated(frequency, speed)
+        kr_z = self.kr_z_interpolated(frequency, speed)
 
-        K = np.array([[kxx, kxy, 0], [kyx, kyy, 0], [0, 0, kzz]])
+        K = np.zeros((6, 6))
+        K[:3, :3] = np.array([[kxx, kxy, 0], [kyx, kyy, 0], [0, 0, kzz]])
+        K[3:, 3:] = np.diag([kr_x, kr_y, kr_z])
 
         if self.n_link is not None:
             # fmt: off
@@ -1187,7 +1226,8 @@ class BearingElement(Element):
         cyx = self.cyx_interpolated(frequency, speed)
         czz = self.czz_interpolated(frequency, speed)
 
-        C = np.array([[cxx, cxy, 0], [cyx, cyy, 0], [0, 0, czz]])
+        C = np.zeros((6, 6))
+        C[:3, :3] = np.array([[cxx, cxy, 0], [cyx, cyy, 0], [0, 0, czz]])
 
         if self.n_link is not None:
             # fmt: off

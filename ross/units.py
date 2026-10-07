@@ -94,6 +94,9 @@ for i, unit in zip(["k", "c", "m"], ["N/m", "N*s/m", "kg"], strict=True):
         for k in ["x", "y", "z"]:
             units["".join([i, j, k])] = unit
 
+for axis in ["x", "y", "z"]:
+    units[f"kr_{axis}"] = "N*m/rad"
+
 
 def check_units(func):
     """Wrapper to check and convert units to base_units.

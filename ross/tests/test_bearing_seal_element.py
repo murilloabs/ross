@@ -109,6 +109,8 @@ def test_index(bearing1):
     assert bearing1.dof_local_index().x_0 == 0
     assert bearing1.dof_local_index()[1] == 1
     assert bearing1.dof_local_index().y_0 == 1
+    assert bearing1.dof_local_index().alpha_0 == 3
+    assert bearing1.dof_local_index().theta_0 == 5
 
 
 def test_bearing1_interpol_kxx(bearing1):
@@ -150,9 +152,9 @@ def test_bearing1_matrices(bearing1):
                   [  0., 1e-3, 0.],
                   [  0.,   0., 0.]])
     # fmt: on
-    assert_allclose(bearing1.K(314.2), K, rtol=1e-5)
-    assert_allclose(bearing1.C(314.2), C, rtol=1e-5)
-    assert_allclose(bearing1.M(314.2), M, rtol=1e-5)
+    assert_allclose(bearing1.K(314.2), np.pad(K, ((0, 3), (0, 3))), rtol=1e-5)
+    assert_allclose(bearing1.C(314.2), np.pad(C, ((0, 3), (0, 3))), rtol=1e-5)
+    assert_allclose(bearing1.M(314.2), np.pad(M, ((0, 3), (0, 3))), rtol=1e-5)
 
 
 def test_bearing_error_speed_not_given():
@@ -258,20 +260,39 @@ def test_from_table():
 
 
 def test_bearing_link_matrices():
-    b0 = BearingElement(n=0, n_link=3, kxx=1, cxx=1)
-    # fmt: off
-    M = np.array([
-        [ 1.,  0.,  0., -1., -0., -0.],
-        [ 0.,  1.,  0., -0., -1., -0.],
-        [ 0.,  0.,  0., -0., -0., -0.],
-        [-1., -0., -0.,  1.,  0.,  0.],
-        [-0., -1., -0.,  0.,  1.,  0.],
-        [-0., -0., -0.,  0.,  0.,  0.]
-    ])
-    # fmt: on
+    b0 = BearingElement(
+        n=0,
+        n_link=3,
+        kxx=1,
+        cxx=1,
+        kr_x=2,
+        kr_y=3,
+        kr_z=4,
+    )
+    local = np.diag([1, 1, 0, 2, 3, 4])
+    expected_k = np.block([[local, -local], [-local, local]])
+    local_c = np.diag([1, 1, 0, 0, 0, 0])
+    expected_c = np.block([[local_c, -local_c], [-local_c, local_c]])
 
-    assert_allclose(b0.K(0), M)
-    assert_allclose(b0.C(0), M)
+    assert_allclose(b0.K(0), expected_k)
+    assert_allclose(b0.C(0), expected_c)
+    assert b0.K(0).shape == (12, 12)
+
+
+def test_rotational_stiffness_units_and_interpolation():
+    bearing = BearingElement(
+        n=0,
+        kxx=1,
+        cxx=0,
+        kr_x=Q_([1, 2], "kN*m/rad"),
+        kr_y=[3e3, 4e3],
+        kr_z=[5e3, 6e3],
+        speed=[0, 100],
+        interpolation="linear",
+    )
+
+    assert_allclose(np.diag(bearing.K(50))[3:], [1.5e3, 3.5e3, 5.5e3])
+    assert_allclose(bearing.kr_x, [1e3, 2e3])
 
 
 def test_ball_bearing_element():
@@ -286,15 +307,15 @@ def test_ball_bearing_element():
     )
 
     K = np.array([[4.64168838e07, 0.00000000e00], [0.00000000e00, 1.00906269e08]])
-    K = np.pad(K, pad_width=((0, 1), (0, 1)))
+    K = np.pad(K, pad_width=((0, 4), (0, 4)))
 
     C = np.array([[580.2110481, 0.0], [0.0, 1261.32836543]])
-    C = np.pad(C, pad_width=((0, 1), (0, 1)))
+    C = np.pad(C, pad_width=((0, 4), (0, 4)))
 
-    assert_allclose(ballbearing.M(0), np.zeros((3, 3)))
+    assert_allclose(ballbearing.M(0), np.zeros((6, 6)))
     assert_allclose(ballbearing.K(0), K)
     assert_allclose(ballbearing.C(0), C)
-    assert_allclose(ballbearing.G(), np.zeros((3, 3)))
+    assert_allclose(ballbearing.G(), np.zeros((6, 6)))
 
 
 def test_roller_bearing_element():
@@ -309,15 +330,15 @@ def test_roller_bearing_element():
     )
 
     K = np.array([[2.72821927e08, 0.00000000e00], [0.00000000e00, 5.56779444e08]])
-    K = np.pad(K, pad_width=((0, 1), (0, 1)))
+    K = np.pad(K, pad_width=((0, 4), (0, 4)))
 
     C = np.array([[3410.27409251, 0.0], [0.0, 6959.74304593]])
-    C = np.pad(C, pad_width=((0, 1), (0, 1)))
+    C = np.pad(C, pad_width=((0, 4), (0, 4)))
 
-    assert_allclose(rollerbearing.M(0), np.zeros((3, 3)))
+    assert_allclose(rollerbearing.M(0), np.zeros((6, 6)))
     assert_allclose(rollerbearing.K(0), K)
     assert_allclose(rollerbearing.C(0), C)
-    assert_allclose(rollerbearing.G(), np.zeros((3, 3)))
+    assert_allclose(rollerbearing.G(), np.zeros((6, 6)))
 
 
 @pytest.fixture
@@ -376,13 +397,13 @@ def test_magnetic_bearing_element(magnetic_bearing):
     # M and G matrices
     assert_allclose(
         magnetic_bearing.M(0),
-        np.zeros((3, 3)),
+        np.zeros((6, 6)),
         rtol=0.0,
         atol=1e-10,
     )
     assert_allclose(
         magnetic_bearing.G(),
-        np.zeros((3, 3)),
+        np.zeros((6, 6)),
         rtol=0.0,
         atol=1e-10,
     )
@@ -595,7 +616,16 @@ def test_magnetic_bearing_with_lead_controller_matches_frequency_response():
 @pytest.fixture
 def bearing_6dof():
     bearing_6dof = BearingElement(
-        n=0, kxx=1e6, kyy=0.8e6, kzz=1e5, cxx=2e2, cyy=1.5e2, czz=0.5e2
+        n=0,
+        kxx=1e6,
+        kyy=0.8e6,
+        kzz=1e5,
+        cxx=2e2,
+        cyy=1.5e2,
+        czz=0.5e2,
+        kr_x=1e4,
+        kr_y=2e4,
+        kr_z=3e4,
     )
 
     return bearing_6dof
@@ -603,16 +633,10 @@ def bearing_6dof():
 
 def test_bearing6(bearing_6dof):
     # fmt: off
-    K = np.array(
-        [[1000000.,      0.,      0.],
-         [      0., 800000.,      0.],
-         [      0.,      0., 100000.]])
-    C = np.array(
-        [[200.,   0.,  0.],
-         [  0., 150.,  0.],
-         [  0.,   0., 50.]])
-    M = np.zeros((3, 3))
-    G = np.zeros((3, 3))
+    K = np.diag([1e6, 0.8e6, 1e5, 1e4, 2e4, 3e4])
+    C = np.diag([2e2, 1.5e2, 0.5e2, 0, 0, 0])
+    M = np.zeros((6, 6))
+    G = np.zeros((6, 6))
     # fmt: on
 
     assert_allclose(bearing_6dof.K(0), K, rtol=1e-3)
@@ -830,9 +854,9 @@ def test_cylindrical_hydrodynamic():
     expected_eccentricity = np.array([0.266298, 0.212571])
     expected_attitude_angle = np.array([0.198931, 0.161713])
     expected_k = np.array([[12.80796, 16.393593], [-25.060393, 8.815303]])
-    expected_k = np.pad(expected_k, pad_width=((0, 1), (0, 1)))
+    expected_k = np.pad(expected_k, pad_width=((0, 4), (0, 4)))
     expected_c = np.array([[232.89693, -81.924371], [-81.924371, 294.911619]])
-    expected_c = np.pad(expected_c, pad_width=((0, 1), (0, 1)))
+    expected_c = np.pad(expected_c, pad_width=((0, 4), (0, 4)))
     assert_allclose(
         cylindrical.modified_sommerfeld, expected_modified_sommerfeld, rtol=1e-6
     )
