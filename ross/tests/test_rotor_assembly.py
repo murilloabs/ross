@@ -1767,21 +1767,29 @@ def test_global_index():
     assert bearings[0].dof_global_index["x_0"] == 0
     assert bearings[0].dof_global_index["y_0"] == 1
     assert bearings[0].dof_global_index["z_0"] == 2
+    assert bearings[0].dof_global_index["alpha_0"] == 3
+    assert bearings[0].dof_global_index["beta_0"] == 4
+    assert bearings[0].dof_global_index["theta_0"] == 5
     assert bearings[0].dof_global_index["x_7"] == 42
     assert bearings[0].dof_global_index["y_7"] == 43
     assert bearings[0].dof_global_index["z_7"] == 44
     assert bearings[1].dof_global_index["x_6"] == 36
     assert bearings[1].dof_global_index["y_6"] == 37
     assert bearings[1].dof_global_index["z_6"] == 38
+    assert bearings[1].dof_global_index["alpha_6"] == 39
+    assert bearings[1].dof_global_index["beta_6"] == 40
+    assert bearings[1].dof_global_index["theta_6"] == 41
     assert bearings[1].dof_global_index["x_8"] == 45
     assert bearings[1].dof_global_index["y_8"] == 46
     assert bearings[1].dof_global_index["z_8"] == 47
     assert bearings[2].dof_global_index["x_7"] == 42
     assert bearings[2].dof_global_index["y_7"] == 43
     assert bearings[2].dof_global_index["z_7"] == 44
+    assert "alpha_7" not in bearings[2].dof_global_index
     assert bearings[3].dof_global_index["x_8"] == 45
     assert bearings[3].dof_global_index["y_8"] == 46
     assert bearings[3].dof_global_index["z_8"] == 47
+    assert "alpha_8" not in bearings[3].dof_global_index
 
     assert pointmass[0].dof_global_index["x_7"] == 42
     assert pointmass[0].dof_global_index["y_7"] == 43
@@ -1789,6 +1797,86 @@ def test_global_index():
     assert pointmass[1].dof_global_index["x_8"] == 45
     assert pointmass[1].dof_global_index["y_8"] == 46
     assert pointmass[1].dof_global_index["z_8"] == 47
+
+
+def test_rotational_bearing_stiffness_with_linked_shaft_node():
+    shafts = [
+        ShaftElement(0.25, 0, 0.05, material=steel),
+        ShaftElement(0.25, 0, 0.05, material=steel),
+    ]
+    bearing = BearingElement(
+        n=0,
+        n_link=2,
+        kxx=0,
+        cxx=0,
+        kr_x=1e4,
+        kr_y=2e4,
+        kr_z=3e4,
+    )
+    rotor = Rotor(shafts, bearing_elements=[bearing])
+    baseline = Rotor(shafts)
+
+    rotational_dofs = [3, 4, 5, 15, 16, 17]
+    local = np.diag([1e4, 2e4, 3e4])
+    expected = np.block([[local, -local], [-local, local]])
+    stiffness_delta = rotor.K(0) - baseline.K(0)
+
+    assert bearing.K(0).shape == (12, 12)
+    assert_allclose(stiffness_delta[np.ix_(rotational_dofs, rotational_dofs)], expected)
+    modal = rotor.run_modal(0, sparse=False)
+    frequency_response = rotor.run_freq_response(speed_range=np.array([10.0, 20.0]))
+    assert np.all(np.isfinite(modal.wn))
+    assert np.all(np.isfinite(frequency_response.freq_resp))
+
+
+def test_rotational_bearing_stiffness_with_linked_point_mass():
+    shafts = [ShaftElement(0.25, 0, 0.05, material=steel)]
+    bearing = BearingElement(
+        n=0,
+        n_link=2,
+        kxx=1e6,
+        cxx=0,
+        kr_x=1e4,
+        kr_y=2e4,
+        kr_z=3e4,
+    )
+    ground_support = BearingElement(n=2, kxx=1e6, cxx=0)
+    support = PointMass(n=2, m=1)
+    rotor = Rotor(
+        shafts,
+        bearing_elements=[bearing, ground_support],
+        point_mass_elements=[support],
+    )
+    baseline = Rotor(
+        [ShaftElement(0.25, 0, 0.05, material=steel)],
+        bearing_elements=[
+            BearingElement(n=0, n_link=2, kxx=1e6, cxx=0),
+            BearingElement(n=2, kxx=1e6, cxx=0),
+        ],
+        point_mass_elements=[PointMass(n=2, m=1)],
+    )
+
+    assert rotor.ndof == 15
+    assert support.M().shape == (3, 3)
+    assert list(bearing.dof_global_index) == [
+        "x_0",
+        "y_0",
+        "z_0",
+        "alpha_0",
+        "beta_0",
+        "theta_0",
+        "x_2",
+        "y_2",
+        "z_2",
+    ]
+    stiffness_delta = rotor.K(0) - baseline.K(0)
+    assert_allclose(np.diag(stiffness_delta)[3:6], [1e4, 2e4, 3e4])
+    assert np.count_nonzero(stiffness_delta) == 3
+    assert np.linalg.matrix_rank(rotor.M(0)) == rotor.ndof
+    modal = rotor.run_modal(0, sparse=False)
+    frequency_response = rotor.run_freq_response(speed_range=np.array([10.0, 20.0]))
+    assert np.all(np.isfinite(modal.wn))
+    assert np.all(np.isfinite(frequency_response.freq_resp))
 
 
 def test_distinct_dof_elements_error():
