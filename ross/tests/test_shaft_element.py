@@ -663,9 +663,9 @@ def coupling():
         m_r=mass_station,
         Ip_l=Ip_station,
         Ip_r=Ip_station,
-        kt_x=1e6,
-        kt_y=2e6,
-        kt_z=3e6,  # Axial stiffness (in N/m)
+        k_x=1e6,
+        k_y=2e6,
+        k_z=3e6,  # Axial stiffness (in N/m)
         kr_x=4e6,
         kr_y=5e6,
         kr_z=6e6,  # Torsional stiffness (in N·m/rad)
@@ -677,9 +677,9 @@ def test_parameters_coupling(coupling):
     assert coupling.Ip == 3.48
     assert coupling.Id_l == 0.87
     assert coupling.Id_r == 0.87
-    assert coupling.kt_x == 1e6
-    assert coupling.kt_y == 2e6
-    assert coupling.kt_z == 3e6
+    assert coupling.k_x == 1e6
+    assert coupling.k_y == 2e6
+    assert coupling.k_z == 3e6
     assert coupling.kr_x == 4e6
     assert coupling.kr_y == 5e6
     assert coupling.kr_z == 6e6

@@ -69,6 +69,16 @@ def test_coupling_has_no_link_node_field():
     assert not any(c["name"] == "n_link" for c in FIELDS["couplings"]["BASIC"])
 
 
+def test_coupling_uses_translational_stiffness_names_without_aliases():
+    parameters = inspect.signature(rs.CouplingElement.__init__).parameters
+    fields = {field["name"] for field in FIELDS["couplings"]["BASIC"]}
+
+    assert {"k_x", "k_y", "k_z"} <= parameters.keys()
+    assert {"k_x", "k_y", "k_z"} <= fields
+    assert {"kt_x", "kt_y", "kt_z"}.isdisjoint(parameters)
+    assert {"kt_x", "kt_y", "kt_z"}.isdisjoint(fields)
+
+
 def test_squeeze_film_has_no_colour_field():
     """BE-17: SqueezeFilmDamper does not accept color and has no **kwargs."""
     assert "color" not in inspect.signature(rs.SqueezeFilmDamper.__init__).parameters  # noqa: F405
