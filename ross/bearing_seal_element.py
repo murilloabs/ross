@@ -384,6 +384,9 @@ class BearingElement(Element):
     kr_x, kr_y, kr_z : float, array, pint.Quantity, optional
         Rotational stiffness about the x, y and z axes (N.m/rad).
         Default is 0.
+    cr_x, cr_y, cr_z : float, array, pint.Quantity, optional
+        Rotational damping about the x, y and z axes (N.m.s/rad).
+        Default is 0.
     speed : array, pint.Quantity, optional
         Rotor speed axis of the coefficient table (rad/s).
         Default is None.
@@ -444,6 +447,8 @@ class BearingElement(Element):
     array([[200.,   0.,   0.],
            [  0., 150.,   0.],
            [  0.,   0.,   0.]])
+    >>> np.diag(bearing0.C(speed[-1]))[3:]
+    array([0., 0., 0.])
 
     A 2-D table declares both axes; the coefficients are then evaluated at
     a (frequency, speed) pair, and at the synchronous diagonal when a single
@@ -494,6 +499,9 @@ class BearingElement(Element):
         color="#355d7a",
         interpolation="pchip",
         radial_clearance=None,
+        cr_x=0,
+        cr_y=0,
+        cr_z=0,
         **kwargs,
     ):
         self.speed = self._axis_array(speed)
@@ -526,6 +534,9 @@ class BearingElement(Element):
             "kr_x",
             "kr_y",
             "kr_z",
+            "cr_x",
+            "cr_y",
+            "cr_z",
         ]
 
         # all args to coefficients.  output of locals() should be READ ONLY
@@ -586,6 +597,7 @@ class BearingElement(Element):
         damping_units="N*s/m",
         mass_units="kg",
         fig=None,
+        rotational_damping_units="N*m*s/rad",
         **kwargs,
     ):
         """Plot coefficient vs speed or frequency.
@@ -610,6 +622,9 @@ class BearingElement(Element):
         damping_units : str, optional
             Damping units.
             Default is N*s/m.
+        rotational_damping_units : str, optional
+            Rotational damping units.
+            Default is N*m*s/rad.
         mass_units : str, optional
             Mass units.
             Default is kg.
@@ -636,7 +651,10 @@ class BearingElement(Element):
             coefficients = [coefficients]
         # check coefficients consistency
         coefficients_set = set(
-            ["kr" if coeff.startswith("kr_") else coeff[0] for coeff in coefficients]
+            [
+                coeff[:2] if coeff.startswith(("kr_", "cr_")) else coeff[0]
+                for coeff in coefficients
+            ]
         )
         if len(coefficients_set) > 1:
             raise ValueError(
@@ -648,6 +666,9 @@ class BearingElement(Element):
         if coeff_to_plot == "kr":
             default_units = "N*m/rad"
             y_units = rotational_stiffness_units
+        elif coeff_to_plot == "cr":
+            default_units = "N*m*s/rad"
+            y_units = rotational_damping_units
         elif coeff_to_plot == "k":
             default_units = "N/m"
             y_units = stiffness_units
@@ -712,6 +733,7 @@ class BearingElement(Element):
         rotational_stiffness_units="N*m/rad",
         damping_units="N*s/m",
         mass_units="kg",
+        rotational_damping_units="N*m*s/rad",
     ):
         """Return speed / frequency vs coefficients in table format.
 
@@ -742,6 +764,9 @@ class BearingElement(Element):
         damping_units : str, optional
             Damping units.
             Default is N*s/m.
+        rotational_damping_units : str, optional
+            Rotational damping units.
+            Default is N*m*s/rad.
         mass_units : str, optional
             Mass units.
             Default is kg.
@@ -778,12 +803,14 @@ class BearingElement(Element):
             "k": "N/m",
             "kr": "N*m/rad",
             "c": "N*s/m",
+            "cr": "N*m*s/rad",
             "m": "kg",
         }
         y_units = {
             "k": stiffness_units,
             "kr": rotational_stiffness_units,
             "c": damping_units,
+            "cr": rotational_damping_units,
             "m": mass_units,
         }
 
@@ -828,7 +855,7 @@ class BearingElement(Element):
         table = PrettyTable()
 
         for coeff in coefficients:
-            coeff_type = "kr" if coeff.startswith("kr_") else coeff[0]
+            coeff_type = coeff[:2] if coeff.startswith(("kr_", "cr_")) else coeff[0]
             headers.append(f"{coeff} [{y_units[coeff_type]}]")
             columns = (
                 Q_(
@@ -867,6 +894,7 @@ class BearingElement(Element):
             f" kyx={self.kyx}, kyy={self.kyy},\n"
             f" kzz={self.kzz}, cxx={self.cxx},\n"
             f" kr_x={self.kr_x}, kr_y={self.kr_y}, kr_z={self.kr_z},\n"
+            f" cr_x={self.cr_x}, cr_y={self.cr_y}, cr_z={self.cr_z},\n"
             f" cxy={self.cxy}, cyx={self.cyx},\n"
             f" cyy={self.cyy}, czz={self.czz},\n"
             f" mxx={self.mxx}, mxy={self.mxy},\n"
@@ -1230,10 +1258,10 @@ class BearingElement(Element):
         Returns
         -------
         C : np.ndarray
-            A 6x6 matrix containing the cxx, cxy, cyx, cyy, and czz values in
-            the first three degrees of freedom and zeros in the rotational
-            degrees of freedom (N*s/m). With ``n_link``, the matrix is 12x12
-            and uses the relative formulation ``[C, -C; -C, C]``.
+            A 6x6 matrix containing translational damping in the first three
+            degrees of freedom (N*s/m) and rotational damping in the last
+            three (N*m*s/rad). With ``n_link``, the matrix is 12x12 and uses
+            the relative formulation ``[C, -C; -C, C]``.
 
         Examples
         --------
@@ -1244,15 +1272,21 @@ class BearingElement(Element):
         array([[200.,   0.,   0.],
                [  0., 150.,   0.],
                [  0.,   0.,  50.]])
+        >>> np.diag(bearing.C(0))[3:]
+        array([0., 0., 0.])
         """
         cxx = self.cxx_interpolated(frequency, speed)
         cyy = self.cyy_interpolated(frequency, speed)
         cxy = self.cxy_interpolated(frequency, speed)
         cyx = self.cyx_interpolated(frequency, speed)
         czz = self.czz_interpolated(frequency, speed)
+        cr_x = self.cr_x_interpolated(frequency, speed)
+        cr_y = self.cr_y_interpolated(frequency, speed)
+        cr_z = self.cr_z_interpolated(frequency, speed)
 
         C = np.zeros((6, 6))
         C[:3, :3] = np.array([[cxx, cxy, 0], [cyx, cyy, 0], [0, 0, czz]])
+        C[3:, 3:] = np.diag([cr_x, cr_y, cr_z])
 
         if self.n_link is not None:
             # fmt: off

@@ -1812,6 +1812,9 @@ def test_rotational_bearing_stiffness_with_linked_shaft_node():
         kr_x=1e4,
         kr_y=2e4,
         kr_z=3e4,
+        cr_x=10,
+        cr_y=20,
+        cr_z=30,
     )
     rotor = Rotor(shafts, bearing_elements=[bearing])
     baseline = Rotor(shafts)
@@ -1820,9 +1823,17 @@ def test_rotational_bearing_stiffness_with_linked_shaft_node():
     local = np.diag([1e4, 2e4, 3e4])
     expected = np.block([[local, -local], [-local, local]])
     stiffness_delta = rotor.K(0) - baseline.K(0)
+    damping_delta = rotor.C(0) - baseline.C(0)
 
     assert bearing.K(0).shape == (12, 12)
     assert_allclose(stiffness_delta[np.ix_(rotational_dofs, rotational_dofs)], expected)
+    local_damping = np.diag([10, 20, 30])
+    expected_damping = np.block(
+        [[local_damping, -local_damping], [-local_damping, local_damping]]
+    )
+    assert_allclose(
+        damping_delta[np.ix_(rotational_dofs, rotational_dofs)], expected_damping
+    )
     modal = rotor.run_modal(0, sparse=False)
     frequency_response = rotor.run_freq_response(speed_range=np.array([10.0, 20.0]))
     assert np.all(np.isfinite(modal.wn))
@@ -1839,6 +1850,9 @@ def test_rotational_bearing_stiffness_with_linked_point_mass():
         kr_x=1e4,
         kr_y=2e4,
         kr_z=3e4,
+        cr_x=10,
+        cr_y=20,
+        cr_z=30,
     )
     ground_support = BearingElement(n=2, kxx=1e6, cxx=0)
     support = PointMass(n=2, m=1)
@@ -1870,8 +1884,11 @@ def test_rotational_bearing_stiffness_with_linked_point_mass():
         "z_2",
     ]
     stiffness_delta = rotor.K(0) - baseline.K(0)
+    damping_delta = rotor.C(0) - baseline.C(0)
     assert_allclose(np.diag(stiffness_delta)[3:6], [1e4, 2e4, 3e4])
     assert np.count_nonzero(stiffness_delta) == 3
+    assert_allclose(np.diag(damping_delta)[3:6], [10, 20, 30])
+    assert np.count_nonzero(damping_delta) == 3
     assert np.linalg.matrix_rank(rotor.M(0)) == rotor.ndof
     modal = rotor.run_modal(0, sparse=False)
     frequency_response = rotor.run_freq_response(speed_range=np.array([10.0, 20.0]))

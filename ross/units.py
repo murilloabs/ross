@@ -96,6 +96,7 @@ for i, unit in zip(["k", "c", "m"], ["N/m", "N*s/m", "kg"], strict=True):
 
 for axis in ["x", "y", "z"]:
     units[f"kr_{axis}"] = "N*m/rad"
+    units[f"cr_{axis}"] = "N*m*s/rad"
 
 
 def check_units(func):

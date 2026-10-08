@@ -268,10 +268,13 @@ def test_bearing_link_matrices():
         kr_x=2,
         kr_y=3,
         kr_z=4,
+        cr_x=5,
+        cr_y=6,
+        cr_z=7,
     )
     local = np.diag([1, 1, 0, 2, 3, 4])
     expected_k = np.block([[local, -local], [-local, local]])
-    local_c = np.diag([1, 1, 0, 0, 0, 0])
+    local_c = np.diag([1, 1, 0, 5, 6, 7])
     expected_c = np.block([[local_c, -local_c], [-local_c, local_c]])
 
     assert_allclose(b0.K(0), expected_k)
@@ -296,6 +299,29 @@ def test_rotational_stiffness_units_and_interpolation():
 
     assert_allclose(np.diag(bearing.K(50))[3:], [1.5e3, 3.5e3, 5.5e3])
     assert_allclose(bearing.kr_x, [1e3, 2e3])
+
+
+def test_rotational_damping_units_and_interpolation():
+    default_bearing = BearingElement(n=0, kxx=1, cxx=0)
+    assert_allclose(np.diag(default_bearing.C(0))[3:], 0)
+
+    bearing = BearingElement(
+        n=0,
+        kxx=1,
+        cxx=0,
+        cr_x=Q_([1, 2], "kN*m*s/rad"),
+        cr_y=[3e3, 4e3],
+        cr_z=[5e3, 6e3],
+        speed=[0, 100],
+        interpolation="linear",
+    )
+
+    assert_allclose(np.diag(bearing.C(50))[3:], [1.5e3, 3.5e3, 5.5e3])
+    assert_allclose(bearing.cr_x, [1e3, 2e3])
+    assert "cr_x [N*m*s/rad]" in bearing.format_table(coefficients=["cr_x"]).field_names
+    fig = bearing.plot("cr_x", rotational_damping_units="kN*m*s/rad")
+    assert_allclose(fig.data[0].y[0], 1)
+    assert_allclose(fig.data[0].y[-1], 2)
 
 
 def test_ball_bearing_element():
@@ -629,6 +655,9 @@ def bearing_6dof():
         kr_x=1e4,
         kr_y=2e4,
         kr_z=3e4,
+        cr_x=10,
+        cr_y=20,
+        cr_z=30,
     )
 
     return bearing_6dof
@@ -637,7 +666,7 @@ def bearing_6dof():
 def test_bearing6(bearing_6dof):
     # fmt: off
     K = np.diag([1e6, 0.8e6, 1e5, 1e4, 2e4, 3e4])
-    C = np.diag([2e2, 1.5e2, 0.5e2, 0, 0, 0])
+    C = np.diag([2e2, 1.5e2, 0.5e2, 10, 20, 30])
     M = np.zeros((6, 6))
     G = np.zeros((6, 6))
     # fmt: on
@@ -685,6 +714,7 @@ def test_save_load(bearing0, bearing_constant, bearing_6dof, magnetic_bearing):
     bearing_6dof.save(file)
     bearing_6dof_loaded = BearingElement.load(file)
     assert bearing_6dof == bearing_6dof_loaded
+    assert_allclose(bearing_6dof_loaded.cr_x, [10])
 
     file = Path(tempdir) / "magnetic_bearing.toml"
     magnetic_bearing.save(file)
@@ -707,6 +737,7 @@ def test_save_load_json(bearing0, bearing_constant, bearing_6dof, magnetic_beari
     bearing_6dof.save(file)
     bearing_6dof_loaded = BearingElement.load(file)
     assert bearing_6dof == bearing_6dof_loaded
+    assert_allclose(bearing_6dof_loaded.cr_y, [20])
 
     file = Path(tempdir) / "magnetic_bearing.json"
     magnetic_bearing.save(file)
