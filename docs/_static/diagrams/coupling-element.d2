@@ -79,9 +79,9 @@ rigidez: Stiffness {
 
   translacional: "Translational [N/m]" {
     tooltip: |
-      k_x: translational stiffness in x
-      k_y: translational stiffness in y
-      k_z: translational stiffness in z (axial)
+      kt_x: translational stiffness in x
+      kt_y: translational stiffness in y
+      kt_z: translational stiffness in z (axial)
       Resistance to relative displacement
     |
     style: {
@@ -155,7 +155,7 @@ matrizes: Element Matrices {
 
   M: M() {
     tooltip: |
-      Mass matrix [12×12]
+      Mass matrix [8×8]
       Combines m_l, m_r, Id_l, Id_r
       at left and right nodes
     |
@@ -167,8 +167,8 @@ matrizes: Element Matrices {
 
   K: K() {
     tooltip: |
-      Stiffness matrix [12×12]
-      Combines k_x/y/z and kr_x/y/z
+      Stiffness matrix [8×8]
+      Combines kt_x/y/z and kr_x/y/z
       Couples the two coupling nodes
     |
     style: {
@@ -179,7 +179,7 @@ matrizes: Element Matrices {
 
   C: C() {
     tooltip: |
-      Damping matrix [12×12]
+      Damping matrix [8×8]
       Combines ct_x/y/z and cr_x/y/z
     |
     style: {
@@ -190,7 +190,7 @@ matrizes: Element Matrices {
 
   G: G() {
     tooltip: |
-      Gyroscopic matrix [12×12]
+      Gyroscopic matrix [8×8]
       Gyroscopic effect of Ip_l and Ip_r
     |
     style: {
