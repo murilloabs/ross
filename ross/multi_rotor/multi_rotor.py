@@ -62,8 +62,6 @@ class MultiRotor(Rotor):
             mesh stiffness.
 
         Default is `{"enable": False, "amplitude_ratio": 0}`.
-    damping_ratio : float, optional
-        Damping ratio used by the gear mesh model. Default is 0.07.
     backlash : dict, optional
         Dictionary to enable and configure the backlash model between the
         coupled gears. Keys are:
@@ -165,7 +163,6 @@ class MultiRotor(Rotor):
         gear_mesh_stiffness=None,
         update_mesh_stiffness=False,
         square_varying_stiffness={"enable": False, "amplitude_ratio": 0},
-        damping_ratio=0.07,
         backlash={
             "enable": False,
             "initial_value": 0.0,
@@ -177,35 +174,9 @@ class MultiRotor(Rotor):
         position="above",
         tag=None,
     ):
-        # Keep positional calls written for the former signature working.
-        if isinstance(damping_ratio, dict):
-            legacy_backlash = damping_ratio
-            legacy_orientation = 0.0
-            legacy_position = "above"
-            legacy_tag = None
-
-            if isinstance(backlash, dict):
-                backlash = legacy_backlash
-            else:
-                legacy_orientation = backlash
-                if isinstance(orientation_angle, str):
-                    legacy_position = orientation_angle
-                    if position != "above":
-                        legacy_tag = position
-                else:
-                    if position != "above":
-                        legacy_tag = position
-                backlash = legacy_backlash
-                orientation_angle = legacy_orientation
-                position = legacy_position
-                if tag is None:
-                    tag = legacy_tag
-            damping_ratio = 0.07
-
         self.rotors = {"driving": copy(driving_rotor), "driven": copy(driven_rotor)}
         self.coupled_nodes = tuple(int(node) for node in coupled_nodes)
         self._gear_mesh_stiffness = gear_mesh_stiffness
-        self._damping_ratio = damping_ratio
         self._square_varying_stiffness = copy(square_varying_stiffness)
         self._backlash = copy(backlash)
         self.position = position
@@ -278,7 +249,6 @@ class MultiRotor(Rotor):
             gear_2,
             gear_mesh_stiffness=gear_mesh_stiffness,
             square_varying_stiffness=square_varying_stiffness,
-            damping_ratio=damping_ratio,
             backlash=backlash,
             orientation_angle=orientation_angle,
         )
@@ -373,7 +343,6 @@ class MultiRotor(Rotor):
             gear_mesh_stiffness=self._gear_mesh_stiffness,
             update_mesh_stiffness=self.update_mesh_stiffness,
             square_varying_stiffness=copy(self._square_varying_stiffness),
-            damping_ratio=self._damping_ratio,
             backlash=copy(self._backlash),
             orientation_angle=self.mesh.orientation_angle,
             position=self.position,
@@ -387,7 +356,6 @@ class MultiRotor(Rotor):
             "gear_mesh_stiffness": self._gear_mesh_stiffness,
             "update_mesh_stiffness": self.update_mesh_stiffness,
             "square_varying_stiffness": copy(self._square_varying_stiffness),
-            "damping_ratio": self._damping_ratio,
             "backlash": copy(self._backlash),
             "orientation_angle": self.mesh.orientation_angle,
             "position": self.position,
@@ -596,7 +564,6 @@ class MultiRotor(Rotor):
             gear_mesh_stiffness=self._gear_mesh_stiffness,
             update_mesh_stiffness=self.update_mesh_stiffness,
             square_varying_stiffness=copy(self._square_varying_stiffness),
-            damping_ratio=self._damping_ratio,
             backlash=copy(self._backlash),
             orientation_angle=self.mesh.orientation_angle,
             position=self.position,

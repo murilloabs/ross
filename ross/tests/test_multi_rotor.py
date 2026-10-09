@@ -171,7 +171,6 @@ def test_save_load_multi_rotor(multi_rotor, tmp_path, suffix):
         driven_rotor=multi_rotor.rotors["driven"],
         coupled_nodes=multi_rotor.coupled_nodes,
         gear_mesh_stiffness=multi_rotor.mesh.stiffness,
-        damping_ratio=0.123,
         orientation_angle=rs.Q_(12, "deg"),
         position="above",
     )
@@ -183,47 +182,7 @@ def test_save_load_multi_rotor(multi_rotor, tmp_path, suffix):
     assert loaded.coupled_nodes == configured.coupled_nodes
     assert loaded.mesh.orientation_angle == configured.mesh.orientation_angle
     assert loaded.mesh.stiffness == configured.mesh.stiffness
-    assert loaded.mesh.damping_ratio == configured.mesh.damping_ratio
     assert_allclose(loaded.K(0), configured.K(0))
-
-
-def test_constructor_keeps_legacy_positional_arguments(multi_rotor):
-    legacy = rs.MultiRotor(
-        multi_rotor.rotors["driving"],
-        multi_rotor.rotors["driven"],
-        multi_rotor.coupled_nodes,
-        multi_rotor.mesh.stiffness,
-        False,
-        {"enable": False, "amplitude_ratio": 0},
-        {"enable": False},
-        0.0,
-        "below",
-        "legacy",
-    )
-
-    assert legacy.update_mesh_stiffness is False
-    assert legacy.position == "below"
-    assert legacy.tag == "legacy"
-
-
-def test_constructor_places_damping_after_square_stiffness(multi_rotor):
-    ordered = rs.MultiRotor(
-        multi_rotor.rotors["driving"],
-        multi_rotor.rotors["driven"],
-        multi_rotor.coupled_nodes,
-        multi_rotor.mesh.stiffness,
-        False,
-        {"enable": False, "amplitude_ratio": 0},
-        0.123,
-        {"enable": False},
-        0.0,
-        "below",
-        "ordered",
-    )
-
-    assert ordered.mesh.damping_ratio == 0.123
-    assert ordered.position == "below"
-    assert ordered.tag == "ordered"
 
 
 @pytest.mark.parametrize("suffix", [".toml", ".json"])
