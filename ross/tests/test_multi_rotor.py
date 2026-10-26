@@ -1081,3 +1081,104 @@ def test_refine_mesh_parts_refines_each_rotor_of_a_multi_rotor(parts):
         expected.run_modal(speed=0, num_modes=12, sparse=False).wn[:12],
         rtol=1e-9,
     )
+
+
+@pytest.mark.parametrize("shaft", [0, 1])
+def test_misalignment_flex_uses_shaft_angle(
+    multi_rotor, fault_shaft_ratios, monkeypatch, shaft
+):
+    n, ratio = fault_shaft_ratios[shaft]
+    speed = 100.0
+    t = np.linspace(0, 0.01, 11)
+    angles = []
+    parallel = rs.faults.misalignment.MisalignmentFlex._parallel
+
+    def spy(self, ang_pos):
+        angles.append(ang_pos)
+        return parallel(self, ang_pos)
+
+    monkeypatch.setattr(rs.faults.misalignment.MisalignmentFlex, "_parallel", spy)
+
+    multi_rotor.run_misalignment(
+        coupling="flex",
+        n=n,
+        mis_type="parallel",
+        mis_distance_x=2e-4,
+        mis_distance_y=2e-4,
+        mis_angle=0,
+        radial_stiffness=40e3,
+        bending_stiffness=38e3,
+        node=[2],
+        unbalance_magnitude=[1e-4],
+        unbalance_phase=[0.0],
+        speed=speed,
+        t=t,
+    )
+
+    assert_allclose(angles[0], ratio * speed * t)
+
+
+@pytest.mark.parametrize("shaft", [0, 1])
+def test_misalignment_rigid_uses_shaft_angle(
+    multi_rotor, fault_shaft_ratios, monkeypatch, shaft
+):
+    n, ratio = fault_shaft_ratios[shaft]
+    speed = 100.0
+    t = np.linspace(0, 0.01, 11)
+    angles = []
+    compute = rs.faults.misalignment.MisalignmentRigid.compute_reaction_force
+
+    def spy(self, y, ap):
+        angles.append(ap)
+        return compute(self, y, ap)
+
+    monkeypatch.setattr(
+        rs.faults.misalignment.MisalignmentRigid, "compute_reaction_force", spy
+    )
+
+    multi_rotor.run_misalignment(
+        coupling="rigid",
+        n=n,
+        mis_distance=2e-4,
+        node=[2],
+        unbalance_magnitude=[1e-4],
+        unbalance_phase=[0.0],
+        speed=speed,
+        t=t,
+    )
+
+    assert_allclose(angles, ratio * speed * t[1 : len(angles) + 1])
+
+
+@pytest.mark.parametrize("nest", [nest_driving, nest_driven])
+@pytest.mark.parametrize("node", [2, 6, 11])
+def test_three_shaft_harmonic_balance(three_shaft_rotors, nest, node):
+    multi_rotor = nest(*three_shaft_rotors)
+    ratio = abs(multi_rotor._node_gear_ratio(node))
+    harmonic = int(ratio)
+    speed = 50.0
+    magnitude = 1e-3
+    phase = 0.3
+
+    results = multi_rotor.run_harmonic_balance_response(
+        speed=speed,
+        t=np.linspace(0, 2 * np.pi / speed, 201),
+        harmonic_forces=[
+            {
+                "node": node,
+                "magnitudes": [magnitude * (ratio * speed) ** 2],
+                "phases": [phase],
+                "harmonics": [1],
+            }
+        ],
+        n_harmonics=harmonic,
+    )
+
+    # Reference: the unbalance response, which excites each shaft at its own
+    # speed and whirl direction through a separate code path.
+    reference = multi_rotor.run_unbalance_response(
+        node, magnitude, phase, speed_range=[speed]
+    ).forced_resp[:, 0]
+
+    assert_allclose(results.dQ[:, harmonic - 1], reference, rtol=1e-6, atol=1e-15)
+    assert_allclose(np.delete(results.dQ, harmonic - 1, axis=1), 0, atol=1e-15)

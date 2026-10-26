@@ -1700,7 +1700,7 @@ class MultiRotor(Rotor):
 
         rotor, node_offset, _ = shafts[shaft]
         node = rotor.nodes[0] + node_offset
-        ratio = abs(self._node_gear_ratio(node))
+        ratio = abs(self.to_shaft_rotation(1, node))
 
         num_modes = (self.ndof - 4) * 2 if speed_range is not None else num_modes
 
@@ -1721,6 +1721,79 @@ class MultiRotor(Rotor):
             return w
 
         return self._run_critical_speed(modal_at, w_crit, speed_range)
+
+    @check_units
+    def run_harmonic_balance_response(
+        self,
+        speed,
+        t,
+        harmonic_forces,
+        gravity=False,
+        n_harmonics=1,
+    ):
+        """
+        Compute the steady-state response of the rotor using the Harmonic Balance
+        method.
+
+        The speed and frequency dependent coefficients are evaluated at the rotor
+        speed for every harmonic. In a geared multi-rotor, ``speed`` is the
+        driving rotor speed.
+
+        Parameters
+        ----------
+        speed : float, pint.Quantity
+            Rotational speed of the rotor (rad/s).
+        t : array_like
+            Time vector (s).
+        harmonic_forces : list of dict
+            List of harmonic force definitions. Each dictionary should contain the
+            following keys:
+
+            - 'node': int
+                Node index where the force is applied.
+
+            - 'magnitudes': list, float
+                List of excitation magnitudes.
+                Interpretation depends on the type of excitation:
+
+                - For direct harmonic forces: force amplitudes (N).
+                - For unbalance-type excitations: ``m * e * shaft_speed**2`` (N),
+                  where ``m`` is the unbalance mass (kg) and ``e`` is the
+                  eccentricity (m).
+
+            - 'phases': list of float
+                List of phase angles (rad).
+
+            - 'harmonics': list of int
+                List of harmonic orders of the speed of the node's shaft
+                (1 for fundamental, 2 for second, etc.). The force rotates
+                with that shaft. In a geared multi-rotor, harmonic ``h`` of a
+                shaft turning ``r`` times as fast as the driving rotor is
+                harmonic ``abs(r) * h`` of the rotor speed. When that is not
+                an integer, a warning is issued and the force is applied at
+                harmonic ``h`` of the rotor speed, whirling forward.
+        gravity : bool, optional
+            If True, include the effect of gravity in the response.
+            Default is False.
+        n_harmonics : int, optional
+            Number of harmonics to consider in the Harmonic Balance solution.
+            Default is 1 (only fundamental harmonic is considered).
+
+        Returns
+        -------
+        results : ross.results.HarmonicBalanceResponse
+            Object containing the steady-state response.
+
+        Examples
+        --------
+        """
+        return super().run_harmonic_balance_response(
+            speed=speed,
+            t=t,
+            harmonic_forces=harmonic_forces,
+            gravity=gravity,
+            n_harmonics=n_harmonics,
+        )
 
 
 def two_shaft_rotor_example():
