@@ -6,6 +6,7 @@ from numpy.testing import assert_allclose
 import ross as rs
 from ross.motors.motor_element import motor_example
 from ross.multi_rotor.mesh import Mesh
+from ross.utils import convert_6dof_to_4dof
 
 
 def build_multi_rotor(**kwargs):
@@ -288,6 +289,50 @@ def test_inherited_analyses_preserve_multi_rotor(multi_rotor):
     with pytest.raises(NotImplementedError, match="refine is not available"):
         multi_rotor.run_mesh_convergence()
     assert multi_rotor.mesh is not None
+
+
+@pytest.mark.parametrize("log_k", [6, 8, 10])
+def test_ucs_keeps_every_multi_rotor_mode(multi_rotor, log_k):
+    num_modes = 12
+    ucs = multi_rotor.run_ucs(
+        stiffness_range=(log_k, log_k + 1), num=2, num_modes=num_modes
+    )
+
+    # Reference: the multi-rotor assembled again with the UCS bearings. The
+    # gear mesh couples the lateral planes, so no mode is a repeated pair.
+    rotors = [
+        rs.Rotor(
+            rotor.shaft_elements,
+            rotor.disk_elements,
+            [
+                rs.BearingElement(n=brg.n, kxx=10.0**log_k, cxx=0)
+                for brg in rotor.bearing_elements
+            ],
+        )
+        for rotor in multi_rotor.rotors.values()
+    ]
+    reference = rs.MultiRotor(
+        *rotors,
+        coupled_nodes=multi_rotor.coupled_nodes,
+        orientation_angle=0.0,
+        position="below",
+    )
+    wn = convert_6dof_to_4dof(reference).run_modal(0, num_modes=num_modes).wn
+
+    assert_allclose(ucs.wn[:, 0], wn[: num_modes // 2], rtol=1e-6)
+
+
+@pytest.mark.parametrize("shaft, node", [(0, 2), (1, 7)])
+def test_critical_speed_at_shaft_speed(multi_rotor, shaft, node):
+    ratio = abs(multi_rotor._node_gear_ratio(node))
+    rtol = 0.005
+    results = multi_rotor.run_critical_speed(num_modes=8, rtol=rtol, shaft=shaft)
+
+    # At a critical speed the 1X excitation of the node's shaft equals the
+    # natural frequency of the mode; rtol is the Newton stopping tolerance.
+    for i, speed in enumerate(results.wn()):
+        modal = multi_rotor.run_modal(speed, num_modes=8, frequency=ratio * speed)
+        assert_allclose(ratio * speed, modal.wn[i], rtol=rtol)
 
 
 @pytest.mark.parametrize("node, whirl", [(2, -1j), (7, 1j)])
@@ -828,6 +873,21 @@ def test_three_shaft_speed_ratios(three_shaft_rotors, nest):
     multi_rotor = nest(*three_shaft_rotors)
 
     assert [multi_rotor._node_gear_ratio(n) for n in (2, 6, 11)] == [1.0, -2.0, 4.0]
+
+
+@pytest.mark.parametrize("nest", [nest_driving, nest_driven])
+def test_three_shaft_critical_speed(three_shaft_rotors, nest):
+    multi_rotor = nest(*three_shaft_rotors)
+    rtol = 0.005
+    results = multi_rotor.run_critical_speed(num_modes=4, rtol=rtol, shaft=2)
+
+    # Shaft C turns 4 times faster than shaft A (gears 60/30 and 40/20).
+    for i, speed in enumerate(results.wn()):
+        modal = multi_rotor.run_modal(speed, num_modes=4, frequency=4 * speed)
+        assert_allclose(4 * speed, modal.wn[i], rtol=rtol)
+
+    with pytest.raises(ValueError, match="shaft must be between 0 and 2"):
+        multi_rotor.run_critical_speed(shaft=3)
 
 
 @pytest.mark.parametrize("nest", [nest_driving, nest_driven])

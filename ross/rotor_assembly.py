@@ -1920,24 +1920,49 @@ class Rotor(object):
         num_modes = (self.ndof - 4) * 2 if speed_range is not None else num_modes
 
         modal = self.run_modal(0, num_modes)
-        _wn = modal.wn
-        _wd = modal.wd
-        wn = np.zeros_like(_wn)
-        wd = np.zeros_like(_wd)
 
-        for i in range(len(wn)):
-            wn_func = lambda s: s - self.run_modal(s, num_modes).wn[i]
-            wn[i] = newton(func=wn_func, x0=_wn[i], rtol=rtol)
+        def modal_at(speed):
+            return self.run_modal(speed, num_modes)
 
-        for i in range(len(wd)):
-            wd_func = lambda s: s - self.run_modal(s, num_modes).wd[i]
-            wd[i] = newton(func=wd_func, x0=_wd[i], rtol=rtol)
+        def w_crit(speed_type):
+            w0 = getattr(modal, speed_type)
+            w = np.zeros_like(w0)
+
+            for i in range(len(w)):
+                func = lambda s: s - getattr(modal_at(s), speed_type)[i]
+                w[i] = newton(func=func, x0=w0[i], rtol=rtol)
+
+            return w
+
+        return self._run_critical_speed(modal_at, w_crit, speed_range)
+
+    def _run_critical_speed(self, modal_at, w_crit, speed_range):
+        """Build the critical speed results from the critical speed solver.
+
+        Parameters
+        ----------
+        modal_at : callable
+            ``modal_at(speed)`` returns the ``ModalResults`` at a rotor speed
+            (rad/s).
+        w_crit : callable
+            ``w_crit(speed_type)`` returns the undamped (``"wn"``) or damped
+            (``"wd"``) critical speeds (rad/s), one per mode of ``modal_at``.
+        speed_range : tuple or None
+            Tuple (start, end) used to filter the damped critical speeds
+            (rad/s). None keeps all of them.
+
+        Returns
+        -------
+        results : ross.CriticalSpeedResults
+        """
+        wn = w_crit("wn")
+        wd = w_crit("wd")
 
         log_dec = np.zeros_like(wn)
         damping_ratio = np.zeros_like(wn)
         whirl_direction = list(np.zeros_like(wn))
         for i, s in enumerate(wd):
-            modal = self.run_modal(s, num_modes)
+            modal = modal_at(s)
             log_dec[i] = modal.log_dec[i]
             damping_ratio[i] = modal.damping_ratio[i]
             whirl_direction[i] = modal.whirl_direction()[i]
@@ -3030,7 +3055,7 @@ class Rotor(object):
 
         return forced_resp
 
-    def to_shaft_rotation(self, node, value):
+    def to_shaft_rotation(self, value, node=None):
         """Convert a rotation of the rotor to the shaft of the specified node.
 
         Every node of a single rotor rotates with the rotor, so ``value`` is
@@ -3039,11 +3064,11 @@ class Rotor(object):
 
         Parameters
         ----------
-        node : int
-            Node index.
         value : float or np.ndarray
             Angular position (rad), speed (rad/s) or acceleration (rad/s²) of
             the rotor.
+        node : int, optional
+            Node index.
 
         Returns
         -------
@@ -3053,7 +3078,7 @@ class Rotor(object):
         Examples
         --------
         >>> rotor = rotor_example()
-        >>> rotor.to_shaft_rotation(3, 100.0)
+        >>> rotor.to_shaft_rotation(100.0, 3)
         100.0
         """
         return value
@@ -4843,12 +4868,10 @@ class Rotor(object):
             )
 
         stiffness_log = np.logspace(*stiffness_range, num=num)
-        # for each pair of eigenvalues calculated we have one wn, and we show only
-        # the forward mode in the plots, therefore we have num_modes / 2 / 2
-        rotor_wn = np.zeros((num_modes // 2 // 2, len(stiffness_log)))
+        rotor_wn = np.zeros((num_modes // 2 // self._ucs_mode_step, len(stiffness_log)))
 
         # ensure that no proportional damping is considered
-        shaft_elements = copy(self.shaft_elements)
+        shaft_elements = [copy(sh) for sh in self.shaft_elements]
         for sh in shaft_elements:
             sh.alpha = sh.beta = 0
 
@@ -4877,10 +4900,7 @@ class Rotor(object):
             modal = rotor.run_modal(
                 speed=0, num_modes=num_modes, synchronous=synchronous
             )
-            try:
-                rotor_wn[:, i] = modal.wn[::2]
-            except ValueError:
-                rotor_wn[:, i] = modal.wn[::2][:-1]
+            rotor_wn[:, i] = modal.wn[:: self._ucs_mode_step][: len(rotor_wn)]
 
         bearing0 = bearings_elements[0]
 
@@ -4973,6 +4993,15 @@ class Rotor(object):
         )
 
         return results
+
+    @property
+    def _ucs_mode_step(self):
+        """Step between the modes drawn as curves in the UCS map.
+
+        With isotropic bearings at zero speed the lateral modes come in pairs
+        with the same natural frequency, so one mode of each pair is drawn.
+        """
+        return 2
 
     def run_level1(self, n=5, stiffness_range=None, num=5, **kwargs):
         """Plot level 1 stability analysis.

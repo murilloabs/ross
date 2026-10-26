@@ -8,6 +8,7 @@ geared rotor-dynamic systems.
 import numpy as np
 import pandas as pd
 from re import search
+from scipy.optimize import newton
 from copy import deepcopy as copy
 
 import ross as rs
@@ -15,7 +16,7 @@ from ross.element import Element
 from ross.rotor_assembly import Rotor
 from ross.units import Q_, check_units
 from ross.utils import make_speed_array
-from ross.results import ForcedResponseResults, SummaryResults
+from ross.results import CriticalSpeedResults, ForcedResponseResults, SummaryResults
 
 from .gear_element import GearElement
 from .mesh import Mesh
@@ -863,9 +864,9 @@ class MultiRotor(Rotor):
         F0 = np.zeros((self.ndof, len(t)))
 
         for i, n in enumerate(node):
-            phi = phase[i] + self.to_shaft_rotation(n, theta)
-            w = self.to_shaft_rotation(n, omega)
-            a = self.to_shaft_rotation(n, alpha)
+            phi = phase[i] + self.to_shaft_rotation(theta, n)
+            w = self.to_shaft_rotation(omega, n)
+            a = self.to_shaft_rotation(alpha, n)
 
             Fx = magnitude[i] * ((w**2) * np.cos(phi) + a * np.sin(phi))
             Fy = magnitude[i] * ((w**2) * np.sin(phi) - a * np.cos(phi))
@@ -959,7 +960,7 @@ class MultiRotor(Rotor):
 
         return rotors
 
-    def to_shaft_rotation(self, node, value):
+    def to_shaft_rotation(self, value, node):
         """Convert a rotation of the driving rotor to the shaft of the node.
 
         The value is multiplied by the signed speed ratio of the node, so a
@@ -969,11 +970,11 @@ class MultiRotor(Rotor):
 
         Parameters
         ----------
-        node : int
-            Node index in this MultiRotor numbering.
         value : float or np.ndarray
             Angular position (rad), speed (rad/s) or acceleration (rad/s²) of
             the driving rotor.
+        node : int, optional
+            Node index in this MultiRotor numbering.
 
         Returns
         -------
@@ -983,7 +984,7 @@ class MultiRotor(Rotor):
         Examples
         --------
         >>> multi_rotor = two_shaft_rotor_example()
-        >>> multi_rotor.to_shaft_rotation(7, 100.0) # doctest: +ELLIPSIS
+        >>> multi_rotor.to_shaft_rotation(100.0, 7) # doctest: +ELLIPSIS
         -1426.08...
         """
         return self._node_gear_ratio(node) * value
@@ -1033,6 +1034,15 @@ class MultiRotor(Rotor):
             ratio = driving_rotor._node_gear_ratio(node)
 
         return ratio
+
+    @property
+    def _ucs_mode_step(self):
+        """Step between the modes drawn as curves in the UCS map.
+
+        The gear mesh couples the lateral planes, so the modes do not come in
+        pairs with the same natural frequency and every mode is drawn.
+        """
+        return 1
 
     def compute_coupling_matrix(self):
         """Coupling matrix of two coupled gears.
@@ -1630,6 +1640,87 @@ class MultiRotor(Rotor):
             speed_range=speed_range,
             unbalance=np.vstack((node, unbalance_magnitude, unbalance_phase)),
         )
+
+    def run_critical_speed(self, speed_range=None, num_modes=12, rtol=0.005, shaft=0):
+        """Calculate the critical speeds and damping ratios for the multi-rotor.
+
+        A critical speed is a driving rotor speed at which the synchronous
+        (1X) excitation of one shaft equals a natural frequency. The chosen
+        shaft turns ``abs(speed_ratio)`` times faster than the driving
+        rotor (see :py:meth:`to_shaft_rotation`), so its critical speeds are
+        the driving rotor speeds ``s`` with ``abs(speed_ratio) * s = wn(s)``.
+        The frequency-dependent coefficients are evaluated at that excitation
+        frequency.
+
+        Parameters
+        ----------
+        speed_range : tuple, optional, pint.Quantity
+            Tuple (start, end) with the range of driving rotor speeds (rad/s).
+            The function returns all critical speeds within this range.
+        num_modes : int, optional
+            The number of eigenvalues and eigenvectors to be calculated using
+            ARPACK. If speed_range is not None, num_modes is overrided.
+            Default is 12.
+        rtol : float, optional
+            Tolerance (relative) for termination. Applied to
+            scipy.optimize.newton. Default is 0.005 (0.5%).
+        shaft : int, optional
+            Index of the shaft whose synchronous excitation is considered,
+            counted along the gear train from the driving shaft (0). Nested
+            multi-rotors are expanded, so a three-shaft train has shafts 0, 1
+            and 2. Default is 0.
+
+        Returns
+        -------
+        results : ross.CriticalSpeedResults
+            Critical speeds of the driving rotor. For more information on
+            attributes and methods available see:
+            :py:class:`ross.CriticalSpeedResults`
+
+        Examples
+        --------
+        >>> multi_rotor = two_shaft_rotor_example()
+
+        Critical speeds excited by the driving shaft
+        >>> results = multi_rotor.run_critical_speed(num_modes=8)
+        >>> np.round(results.wn("rpm"))
+        array([ 702.,  734., 1048., 1099.])
+
+        Critical speeds excited by the driven shaft, given as driving shaft
+        speeds
+        >>> results = multi_rotor.run_critical_speed(num_modes=8, shaft=1)
+        >>> np.round(results.wn("rpm"))
+        array([49., 51., 75., 76.])
+        """
+        shafts = self._single_rotors()
+        if not 0 <= shaft < len(shafts):
+            raise ValueError(
+                f"shaft must be between 0 and {len(shafts) - 1}, got {shaft}."
+            )
+
+        rotor, node_offset, _ = shafts[shaft]
+        node = rotor.nodes[0] + node_offset
+        ratio = abs(self._node_gear_ratio(node))
+
+        num_modes = (self.ndof - 4) * 2 if speed_range is not None else num_modes
+
+        modal = self.run_modal(0, num_modes)
+
+        def modal_at(speed):
+            frequency = None if ratio == 1 else ratio * speed
+            return self.run_modal(speed, num_modes, frequency=frequency)
+
+        def w_crit(speed_type):
+            w0 = getattr(modal, speed_type)
+            w = np.zeros_like(w0)
+
+            for i in range(len(w)):
+                func = lambda s: ratio * s - getattr(modal_at(s), speed_type)[i]
+                w[i] = newton(func=func, x0=w0[i] / ratio, rtol=rtol)
+
+            return w
+
+        return self._run_critical_speed(modal_at, w_crit, speed_range)
 
 
 def two_shaft_rotor_example():
