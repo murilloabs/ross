@@ -548,25 +548,6 @@ class Rotor(object):
         else:
             self.link_nodes = []
 
-        # Shaft nodes reuse the DOFs already created by the shaft model. Nodes
-        # outside the shaft are reserved for bearing-housing connections and
-        # receive one additional translational (x, y, z) block each.
-        self._shaft_nodes = set(self.nodes)
-        self._housing_nodes = sorted(self._find_external_support_nodes())
-        self._housing_dof_mapping = {
-            node: int(self.number_dof * len(self.nodes) + 3 * index)
-            for index, node in enumerate(self._housing_nodes)
-        }
-
-        for point_mass in self.point_mass_elements:
-            if point_mass.n not in self._shaft_nodes and (
-                point_mass.n not in self._housing_dof_mapping
-            ):
-                raise ValueError(
-                    f"Point mass node {point_mass.n} is neither a shaft node "
-                    "nor a connected external bearing-support node."
-                )
-
         # rotor mass can also be calculated with self.M()[::4, ::4].sum()
         self.m_disks = np.sum([disk.m for disk in self.disk_elements])
         self.m_shaft = np.sum([sh_el.m for sh_el in self.shaft_elements])
@@ -589,9 +570,16 @@ class Rotor(object):
         self.Ip = Ip_sh + Ip_dsk
 
         # number of dofs
+        external_nodes = [n for n in self.link_nodes if n not in self.nodes]
         half_ndof = self.number_dof / 2
+
+        external_dof_mapping = {
+            node: int(self.number_dof * len(self.nodes) + half_ndof * index)
+            for index, node in enumerate(external_nodes)
+        }
+
         self.ndof = int(
-            self.number_dof * len(self.nodes) + half_ndof * len(self._housing_nodes)
+            self.number_dof * len(self.nodes) + half_ndof * len(external_nodes)
         )
 
         # global indexes for dofs
@@ -604,13 +592,13 @@ class Rotor(object):
                     int(v)
                 )
 
-            if elm.n in self._shaft_nodes:
+            if elm.n in self.nodes:
                 elm_dof_start = int(self.number_dof * elm.n)
-            elif elm.n in self._housing_dof_mapping:
-                elm_dof_start = self._housing_dof_mapping[elm.n]
+            elif elm.n in external_nodes:
+                elm_dof_start = external_dof_mapping[elm.n]
             else:
                 raise ValueError(
-                    f"Element node {elm.n} is neither a shaft node nor a "
+                    f"{elm.__class__.__name__} node {elm.n} is neither a shaft node nor a "
                     "connected external bearing-support node."
                 )
 
@@ -618,19 +606,19 @@ class Rotor(object):
                 global_dof_mapping[k] = elm_dof_start + v
 
             if hasattr(elm, "n_link") and elm.n_link is not None:
-                if elm.n_link in self._shaft_nodes:
+                if elm.n_link in self.nodes:
                     link_dof_start = int(self.number_dof * elm.n_link)
                     global_dof_mapping[f"x_{elm.n_link}"] = int(link_dof_start)
                     global_dof_mapping[f"y_{elm.n_link}"] = int(link_dof_start + 1)
                     global_dof_mapping[f"z_{elm.n_link}"] = int(link_dof_start + 2)
-                elif elm.n_link in self._housing_dof_mapping:
-                    link_dof_start = self._housing_dof_mapping[elm.n_link]
+                elif elm.n_link in external_nodes:
+                    link_dof_start = external_dof_mapping[elm.n_link]
                     global_dof_mapping[f"x_{elm.n_link}"] = int(link_dof_start)
                     global_dof_mapping[f"y_{elm.n_link}"] = int(link_dof_start + 1)
                     global_dof_mapping[f"z_{elm.n_link}"] = int(link_dof_start + 2)
                 else:
                     raise ValueError(
-                        f"Bearing link node {elm.n_link} is neither a shaft "
+                        f"{elm.__class__.__name__} link node {elm.n_link} is neither a shaft "
                         "node nor a connected external bearing-support node."
                     )
 
@@ -930,34 +918,6 @@ class Rotor(object):
 
         return int(number_dof)
 
-    def _find_external_support_nodes(self):
-        """Find external nodes connected to the shaft through bearing links.
-
-        Bearing elements can connect two shaft nodes or connect a shaft node
-        to an external bearing-housing node. The latter nodes need a separate
-        translational DOF block, while shaft nodes must reuse the shaft DOFs.
-        """
-        adjacency = {}
-        for bearing in self.bearing_elements:
-            if bearing.n_link is None:
-                continue
-
-            node = int(bearing.n)
-            link_node = int(bearing.n_link)
-            adjacency.setdefault(node, set()).add(link_node)
-            adjacency.setdefault(link_node, set()).add(node)
-
-        reachable = set(self._shaft_nodes)
-        pending = list(self._shaft_nodes)
-        while pending:
-            node = pending.pop()
-            for linked_node in adjacency.get(node, ()):
-                if linked_node not in reachable:
-                    reachable.add(linked_node)
-                    pending.append(linked_node)
-
-        return reachable.difference(self._shaft_nodes)
-
     def _find_linked_bearing_node(self, node):
         """Find the linked bearing element by node
 
@@ -993,16 +953,14 @@ class Rotor(object):
         """
         new_bearings = []
         for brg in bearing_elements:
-            if brg.n not in self._housing_nodes:
+            if brg.n not in self.link_nodes:
                 brg = deepcopy(brg)
                 brg.n_link = brg.n_link if brg.n_link in self.nodes else None
                 new_bearings.append(brg)
 
         if point_mass_elements is not None:
             new_point_masses = [
-                deepcopy(p)
-                for p in point_mass_elements
-                if p.n not in self._housing_nodes
+                deepcopy(p) for p in point_mass_elements if p.n not in self.link_nodes
             ]
 
             return new_bearings, new_point_masses
