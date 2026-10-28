@@ -346,6 +346,61 @@ def test_unbalance_force_whirls_with_shaft(multi_rotor, node, whirl):
 
 
 @pytest.mark.parametrize("node", [2, 7])
+def test_deflected_shape_plots_run_for_each_shaft(multi_rotor, node):
+    speed_range = np.linspace(50, 150, 5)
+    response = multi_rotor.run_unbalance_response(
+        node=node,
+        unbalance_magnitude=1e-3,
+        unbalance_phase=0,
+        speed_range=speed_range,
+    )
+
+    fig_3d = response.plot_deflected_shape_3d(speed=speed_range[2])
+    fig_2d = response.plot_deflected_shape_2d(speed=speed_range[2])
+
+    unbalance_marker = [
+        trace for trace in fig_3d.data if trace.legendgroup == "Unbalance"
+    ][0]
+    assert_allclose(unbalance_marker.y, [multi_rotor.nodes_pos[node]] * 2)
+    assert len(fig_2d.data) > 0
+
+
+def test_deflected_shape_3d_separates_center_lines(multi_rotor):
+    speed_range = np.linspace(50, 150, 5)
+    response = multi_rotor.run_unbalance_response(
+        node=7,
+        unbalance_magnitude=1e-3,
+        unbalance_phase=0,
+        speed_range=speed_range,
+    )
+
+    fig = response.plot_deflected_shape_3d(speed=speed_range[2])
+
+    center_lines = [
+        trace
+        for trace in fig.data
+        if trace.mode == "lines"
+        and trace.line.dash == "dashdot"
+        and trace.hoverinfo == "none"
+        and trace.legendgroup is None
+    ]
+    levels = sorted({trace.z[0] for trace in center_lines})
+    assert len(levels) == 2
+    driving, driven = levels[1], levels[0]
+    assert driving == 0
+    assert driven < 0
+
+    node_z = {
+        node: trace.z[0]
+        for node in (2, 7)
+        for trace in fig.data
+        if trace.name == f"node {node}" and trace.mode == "markers"
+    }
+    assert abs(node_z[2] - driving) < abs(node_z[2] - driven)
+    assert abs(node_z[7] - driven) < abs(node_z[7] - driving)
+
+
+@pytest.mark.parametrize("node", [2, 7])
 def test_unbalance_force_matches_time_domain(multi_rotor, node):
     speed = 80.0
     phase = 0.7

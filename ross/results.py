@@ -477,6 +477,11 @@ class Shape(Results):
     normalize : bool, optional
         If True the vector is normalized.
         Default is False.
+    center_line_pos : list, optional
+        Lateral position of the center line of each node (m). When the nodes lie on
+        different center lines, as in a multi-rotor, the 3D plot draws each center
+        line side by side, spaced by the shape amplitude.
+        Default is None, which places every node on the same center line.
     """
 
     def __init__(
@@ -487,8 +492,10 @@ class Shape(Results):
         shaft_elements_length,
         number_dof,
         normalize=False,
+        center_line_pos=None,
     ):
         self.vector = vector
+        self.center_line_pos = center_line_pos
         self.nodes = nodes
         self.nodes_pos = nodes_pos
         self.shaft_elements_length = shaft_elements_length
@@ -515,6 +522,8 @@ class Shape(Results):
         self.yn = None
         self.zn = None
         self.major_axis = None
+        self.node_offsets = np.zeros(len(nodes_pos))
+        self.center_line_offsets = np.zeros(1)
         self._classify()
 
         if number_dof > 3:
@@ -622,6 +631,14 @@ class Shape(Results):
 
             n_div, get_node_index, _ = self._fix_mode_shape_intersections()
 
+            if self.center_line_pos is None:
+                center_line_rank = np.zeros(len(nodes_pos), dtype=int)
+            else:
+                center_line_rank = np.unique(
+                    np.round(self.center_line_pos, 9), return_inverse=True
+                )[1]
+            point_rank = np.zeros(shape, dtype=int)
+
             n0 = 0
             e0 = 0
             k = 0
@@ -656,6 +673,7 @@ class Shape(Results):
                     xn[pos0:pos1] = Nx @ evec[xx].real
                     yn[pos0:pos1] = Ny @ evec[yy].real
                     zn[pos0:pos1] = (node_pos * onn + Le * zeta).reshape(nn)
+                    point_rank[pos0:pos1] = center_line_rank[n]
 
                     # major axes calculation
                     xn_complex[pos0:pos1] = Nx @ evec[xx]
@@ -679,6 +697,13 @@ class Shape(Results):
                 n0 = n1
                 e0 = e1
 
+            spacing = 6 * np.max(major)
+            reference = center_line_rank[0] * spacing
+            self.center_line_offsets = (
+                np.arange(center_line_rank.max() + 1) * spacing - reference
+            )
+            self.node_offsets = center_line_rank * spacing - reference
+            self.yc_n = point_rank * spacing - reference
             self.xn = xn
             self.yn = yn
             self.zn = zn
@@ -1169,8 +1194,8 @@ class Shape(Results):
                             name=f"Node {self.nodes[n]}",
                             hovertemplate=(
                                 "Nodal position: %{y:.2f}<br>"
-                                + "X - Displacement: %{x:.2f}<br>"
-                                + "Y - Displacement: %{z:.2f}<br>"
+                                + "X - Displacement: %{x:.2e}<br>"
+                                + "Y - Displacement: %{z:.2e}<br>"
                                 + f"Relative angle: {theta[n]:.2f}"
                             ),
                             legendgroup=legend_name,
@@ -1333,7 +1358,7 @@ class Shape(Results):
                         line=dict(color=self.color),
                         customdata=Q_(self.angle_0[n0:n1], "rad").to(phase_units).m,
                         hovertemplate=(
-                            f"Displacement: %{{y:.2f}}<br>"
+                            f"Displacement: %{{y:.2e}}<br>"
                             + f"Angle {phase_units}: %{{customdata:.2f}}"
                         ),
                         name=f"{orientation}",
@@ -1438,21 +1463,24 @@ class Shape(Results):
             for orbit in self.orbits:
                 zc_pos = np.repeat(orbit.node_pos, len(orbit.x_circle))
                 zc_pos = Q_(zc_pos, "m").to(length_units).m
+                offset = self.node_offsets[orbit.node]
+                y_circle = orbit.y_circle + offset
 
                 # add orbit point
                 orbit_data.append(
                     go.Scatter3d(
                         y=[zc_pos[i]],
                         x=[orbit.x_circle[i]],
-                        z=[orbit.y_circle[i]],
+                        z=[y_circle[i]],
+                        customdata=[orbit.y_circle[i]],
                         mode="markers",
                         marker=dict(color=orbit.color),
                         name="node {}".format(orbit.node),
                         showlegend=False,
                         hovertemplate=(
                             "Nodal Position: %{y:.2f}<br>"
-                            + "X - Displacement: %{x:.2f}<br>"
-                            + "Y - Displacement: %{z:.2f}"
+                            + "X - Amplitude: %{x:.2e}<br>"
+                            + "Y - Amplitude: %{customdata:.2e}"
                         ),
                     )
                 )
@@ -1462,15 +1490,16 @@ class Shape(Results):
                         go.Scatter3d(
                             y=zc_pos[j],
                             x=orbit.x_circle[j],
-                            z=orbit.y_circle[j],
+                            z=y_circle[j],
+                            customdata=orbit.y_circle[j],
                             mode="lines",
                             line=dict(color=orbit.color, dash="dashdot"),
                             name="node {}".format(orbit.node),
                             showlegend=False,
                             hovertemplate=(
                                 "Nodal Position: %{y:.2f}<br>"
-                                + "X - Displacement: %{x:.2f}<br>"
-                                + "Y - Displacement: %{z:.2f}"
+                                + "X - Amplitude: %{x:.2e}<br>"
+                                + "Y - Amplitude: %{customdata:.2e}"
                             ),
                         )
                     )
@@ -1480,15 +1509,16 @@ class Shape(Results):
                         go.Scatter3d(
                             y=zc_pos,
                             x=orbit.x_circle,
-                            z=orbit.y_circle,
+                            z=y_circle,
+                            customdata=orbit.y_circle,
                             mode="lines",
                             line=dict(color=orbit.color),
                             name="node {}".format(orbit.node),
                             showlegend=False,
                             hovertemplate=(
                                 "Nodal Position: %{y:.2f}<br>"
-                                + "X - Displacement: %{x:.2f}<br>"
-                                + "Y - Displacement: %{z:.2f}"
+                                + "X - Amplitude: %{x:.2e}<br>"
+                                + "Y - Amplitude: %{customdata:.2e}"
                             ),
                         )
                     )
@@ -1498,7 +1528,7 @@ class Shape(Results):
                         go.Scatter3d(
                             y=[zc_pos[0]],
                             x=[orbit.major_x],
-                            z=[orbit.major_y],
+                            z=[orbit.major_y + offset],
                             mode="markers",
                             marker=dict(
                                 color="black", symbol="cross", size=4, line_width=2
@@ -1514,7 +1544,7 @@ class Shape(Results):
                             ).reshape(1, 2),
                             hovertemplate=(
                                 "Nodal Position: %{y:.2f}<br>"
-                                + "Major axis: %{customdata[0]:.2f}<br>"
+                                + "Major axis: %{customdata[0]:.2e}<br>"
                                 + "Angle: %{customdata[1]:.2f}"
                             ),
                         )
@@ -1538,7 +1568,7 @@ class Shape(Results):
                 go.Scatter3d(
                     y=zn[n0:n1],
                     x=xn[n0:n1],
-                    z=yn[n0:n1],
+                    z=yn[n0:n1] + self.yc_n[n0:n1],
                     mode="lines",
                     line=dict(color="black", dash="dash"),
                     name="mode shape",
@@ -1551,7 +1581,7 @@ class Shape(Results):
                 go.Scatter3d(
                     y=zn[n0:n1],
                     x=self.major_x[n0:n1],
-                    z=self.major_y[n0:n1],
+                    z=self.major_y[n0:n1] + self.yc_n[n0:n1],
                     mode="lines",
                     line=dict(color="black", dash="dashdot"),
                     hoverinfo="none",
@@ -1565,17 +1595,18 @@ class Shape(Results):
         # plot center line
         min_pos = min(zn) - 0.15 * abs(max(zn) - min(zn))
         max_pos = max(zn) + 0.15 * abs(max(zn) - min(zn))
-        fixed_lines.append(
-            go.Scatter3d(
-                y=[min_pos, max_pos],
-                x=[0, 0],
-                z=[0, 0],
-                mode="lines",
-                line=dict(color="black", dash="dashdot"),
-                hoverinfo="none",
-                showlegend=False,
-            ),
-        )
+        for offset in self.center_line_offsets:
+            fixed_lines.append(
+                go.Scatter3d(
+                    y=[min_pos, max_pos],
+                    x=[0, 0],
+                    z=[offset, offset],
+                    mode="lines",
+                    line=dict(color="black", dash="dashdot"),
+                    hoverinfo="none",
+                    showlegend=False,
+                ),
+            )
 
         fig.add_traces(data=[*initial_state, *fixed_lines])
 
@@ -4552,6 +4583,7 @@ class ForcedResponseResults(Results):
             nodes_pos=self.rotor.nodes_pos,
             shaft_elements_length=self.rotor.shaft_elements_length,
             number_dof=self.rotor.number_dof,
+            center_line_pos=self.rotor.center_line_pos,
         )
 
         if fig is None:
@@ -4578,12 +4610,13 @@ class ForcedResponseResults(Results):
                 x = scaled_amplitude * np.cos(phase)
                 y = scaled_amplitude * np.sin(phase)
                 z_pos = Q_(shape.nodes_pos[n], "m").to(rotor_length_units).m
+                offset = shape.node_offsets[n]
 
                 fig.add_trace(
                     go.Scatter3d(
                         y=[z_pos, z_pos],
                         x=[0, Q_(x, "m").to(amplitude_units).m],
-                        z=[0, Q_(y, "m").to(amplitude_units).m],
+                        z=[offset, offset + Q_(y, "m").to(amplitude_units).m],
                         mode="lines",
                         line=dict(color=tableau_colors["red"]),
                         legendgroup="Unbalance",
@@ -4595,7 +4628,7 @@ class ForcedResponseResults(Results):
                     go.Scatter3d(
                         y=[z_pos],
                         x=[Q_(x, "m").to(amplitude_units).m],
-                        z=[Q_(y, "m").to(amplitude_units).m],
+                        z=[offset + Q_(y, "m").to(amplitude_units).m],
                         mode="markers",
                         marker=dict(color=tableau_colors["red"], symbol="diamond"),
                         name="Unbalance",
@@ -4619,6 +4652,25 @@ class ForcedResponseResults(Results):
             ),
         )
 
+        offsets = shape.center_line_offsets
+        z_axis = dict(
+            title=dict(text=f"Amplitude y ({amplitude_units})"),
+            range=[offsets.min() - plot_range, offsets.max() + plot_range],
+            nticks=5,
+        )
+        if len(offsets) > 1:
+            ticks = np.array([-plot_range, 0, plot_range])
+            z_axis["tickvals"] = (offsets[:, None] + ticks).ravel()
+            z_axis["ticktext"] = [f"{t:.1e}" for t in np.tile(ticks, len(offsets))]
+            fig.add_annotation(
+                text="Note: center lines are spaced for display; the ticks give the amplitude of each.",
+                xref="paper",
+                yref="paper",
+                x=1,
+                y=0,
+                showarrow=False,
+            )
+
         fig.update_layout(
             scene=dict(
                 xaxis=dict(
@@ -4630,11 +4682,7 @@ class ForcedResponseResults(Results):
                     title=dict(text=f"Rotor Length ({rotor_length_units})"),
                     nticks=5,
                 ),
-                zaxis=dict(
-                    title=dict(text=f"Amplitude y ({amplitude_units})"),
-                    range=[-plot_range, plot_range],
-                    nticks=5,
-                ),
+                zaxis=z_axis,
             ),
             **kwargs,
         )
