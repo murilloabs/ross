@@ -12,9 +12,7 @@ project so it is shared with anyone working on the repository.
 """
 
 import argparse
-import os
 import shutil
-import stat
 import sys
 from importlib import metadata, resources
 from pathlib import Path
@@ -22,13 +20,6 @@ from pathlib import Path
 SKILL_NAME = "ross"
 
 VERSION_PLACEHOLDER = "> Skill version: development (repo checkout)"
-
-
-def _remove_readonly(function, path, exc_info):
-    """Retry removal after clearing a read-only bit copied from resources."""
-    os.chmod(path, os.stat(path).st_mode | stat.S_IWRITE)
-    function(path)
-
 
 AGENTS = {
     "claude": {
@@ -88,7 +79,7 @@ def install_skill(skills_dir):
     source = resources.files("ross") / "agent_skills" / SKILL_NAME
 
     if target.exists():
-        shutil.rmtree(target, onerror=_remove_readonly)
+        shutil.rmtree(target)
 
     with resources.as_file(source) as source_path:
         shutil.copytree(source_path, target)
@@ -123,7 +114,7 @@ def uninstall_skill(skills_dir):
     """
     target = Path(skills_dir).expanduser() / SKILL_NAME
     if target.exists():
-        shutil.rmtree(target, onerror=_remove_readonly)
+        shutil.rmtree(target)
         return True
     return False
 
